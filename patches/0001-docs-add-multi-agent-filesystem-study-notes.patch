@@ -1,0 +1,1867 @@
+From f93bfff4d91a51a4664951ffc78c973e34310fa1 Mon Sep 17 00:00:00 2001
+From: Kernel Agent Manager <kernel-agent@example.local>
+Date: Sat, 30 May 2026 09:59:29 +0800
+Subject: [PATCH] docs: add multi-agent filesystem study notes
+
+---
+ .../agent-study/agent_organization.md         |  43 ++
+ .../knowledge/development_workflow.md         |  72 +++
+ .../knowledge/fs_learning_summary.md          | 109 ++++
+ .../agent-study/knowledge/read_write_path.md  | 111 ++++
+ .../agent-study/records/run_log.md            |  55 ++
+ .../agent-study/records/task_board.md         |  28 ++
+ .../agent-study/reports/ext4_agent_report.md  | 472 ++++++++++++++++++
+ .../reports/page_cache_agent_report.md        | 195 ++++++++
+ .../reports/review_agent_report.md            |  80 +++
+ .../reports/testing_agent_report.md           | 192 +++++++
+ .../agent-study/reports/vfs_agent_report.md   | 335 +++++++++++++
+ fs/ext4/file.c                                |   4 +
+ fs/open.c                                     |   5 +
+ fs/read_write.c                               |   8 +
+ mm/filemap.c                                  |   4 +
+ 15 files changed, 1713 insertions(+)
+ create mode 100644 Documentation/filesystems/agent-study/agent_organization.md
+ create mode 100644 Documentation/filesystems/agent-study/knowledge/development_workflow.md
+ create mode 100644 Documentation/filesystems/agent-study/knowledge/fs_learning_summary.md
+ create mode 100644 Documentation/filesystems/agent-study/knowledge/read_write_path.md
+ create mode 100644 Documentation/filesystems/agent-study/records/run_log.md
+ create mode 100644 Documentation/filesystems/agent-study/records/task_board.md
+ create mode 100644 Documentation/filesystems/agent-study/reports/ext4_agent_report.md
+ create mode 100644 Documentation/filesystems/agent-study/reports/page_cache_agent_report.md
+ create mode 100644 Documentation/filesystems/agent-study/reports/review_agent_report.md
+ create mode 100644 Documentation/filesystems/agent-study/reports/testing_agent_report.md
+ create mode 100644 Documentation/filesystems/agent-study/reports/vfs_agent_report.md
+
+diff --git a/Documentation/filesystems/agent-study/agent_organization.md b/Documentation/filesystems/agent-study/agent_organization.md
+new file mode 100644
+index 0000000..b01deea
+--- /dev/null
++++ b/Documentation/filesystems/agent-study/agent_organization.md
+@@ -0,0 +1,43 @@
++# Linux 文件系统学习 Agent 组织架构
++
++## 目标
++
++本工程使用多 agent 协同学习 Linux 内核文件系统相关代码，沉淀可追溯的中文学习文档，并为后续小范围代码注释和开发实验建立协作流程。
++
++当前阶段目标：
++
++1. 学习 VFS、ext4、page cache/writeback、测试体系等核心模块。
++2. 每个 agent 产出独立报告，要求引用源码文件和关键函数。
++3. Manager Agent 汇总各 agent 结论，形成统一知识库。
++4. 在选定核心源码文件中加入少量中文学习注释，作为代码阅读标记。
++5. 创建本地 Git 提交，后续推送到用户指定的 GitHub 仓库。
++
++## Agent 角色
++
++| Agent | 角色 | 主要输入 | 主要输出 |
++|---|---|---|---|
++| Manager Agent | 总控、任务拆分、整合和提交 | 全部报告、源码树、任务板 | 总结文档、协作记录、Git 提交 |
++| VFS Agent | VFS 核心路径研究 | `fs/open.c`、`fs/read_write.c`、`fs/namei.c`、`include/linux/fs.h` | `reports/vfs_agent_report.md` |
++| Ext4 Agent | ext4 具体文件系统研究 | `fs/ext4/file.c`、`fs/ext4/inode.c`、`fs/ext4/super.c`、`fs/ext4/ext4.h` | `reports/ext4_agent_report.md` |
++| Page Cache Agent | page cache、readahead、writeback 研究 | `mm/filemap.c`、`mm/page-writeback.c`、`mm/readahead.c`、`fs/buffer.c` | `reports/page_cache_agent_report.md` |
++| Testing Agent | 内核文件系统测试体系研究 | `fs/ext4/.kunitconfig`、`tools/testing/selftests/filesystems/`、`Documentation/filesystems/` | `reports/testing_agent_report.md` |
++| Review Agent | 交叉审查和质量检查 | 各 agent 报告、知识文档、注释 patch | `reports/review_agent_report.md` |
++
++## 协作流程
++
++```text
++Manager 分配任务
++  -> 多个研究 agent 并行阅读源码并输出报告
++  -> Manager 汇总为知识库文档
++  -> Review Agent 检查引用、覆盖范围和风险
++  -> Manager 根据反馈补充文档和少量中文注释
++  -> 创建本地 Git 提交
++```
++
++## 质量要求
++
++- 结论必须能追溯到源码文件和函数。
++- 不确定点必须明确标出，不能编造。
++- 中文注释只用于学习说明，避免大范围污染源码。
++- 不修改内核逻辑，不改变编译行为。
++- Git 提交应包含文档、协作记录和注释修改。
+diff --git a/Documentation/filesystems/agent-study/knowledge/development_workflow.md b/Documentation/filesystems/agent-study/knowledge/development_workflow.md
+new file mode 100644
+index 0000000..9a7928e
+--- /dev/null
++++ b/Documentation/filesystems/agent-study/knowledge/development_workflow.md
+@@ -0,0 +1,72 @@
++# 面向文件系统开发的 Agent 协作流程
++
++## 推荐工作模式
++
++```text
++Manager Agent
++  -> 拆任务、限定文件范围、写验收标准
++  -> 启动 VFS/Ext4/Page Cache/Testing/Review 等子 agent
++  -> 收集报告和补丁
++  -> 合并知识库或代码修改
++  -> 触发 Review/Test
++  -> 失败则派回对应 agent 返工
++```
++
++文件系统开发不适合让多个 agent 同时修改同一批源码。更稳的模式是：
++
++- 研究 agent 只写自己的报告。
++- 开发 agent 只改被分配的文件。
++- Review agent 默认只读，不直接修代码。
++- Test agent 输出命令和测试报告。
++- Manager 负责最终整合、提交和记录。
++
++## 任务模板
++
++```yaml
++id: fs-task-001
++title: "研究 ext4 buffered write 路径"
++owner: ext4_agent
++allowed_write_paths:
++  - Documentation/filesystems/agent-study/reports/ext4_agent_report.md
++inputs:
++  - fs/ext4/file.c
++  - fs/ext4/inode.c
++  - mm/filemap.c
++acceptance:
++  - "必须引用源码文件和函数名"
++  - "必须区分 buffered I/O 与 direct I/O"
++  - "必须列出不确定点"
++```
++
++## 质量门禁
++
++对文档和学习注释 patch，推荐最小检查：
++
++```sh
++git diff --check
++git diff --stat
++git diff -- Documentation/filesystems/agent-study fs/open.c fs/read_write.c fs/ext4/file.c mm/filemap.c
++```
++
++如果是完整 Linux 构建环境，可进一步运行：
++
++```sh
++scripts/checkpatch.pl --strict --git HEAD
++make O=build olddefconfig
++make O=build fs/ext4/ W=1
++tools/testing/kunit/kunit.py run --kunitconfig=fs/ext4/.kunitconfig
++```
++
++在当前 Windows/PowerShell 环境和 sparse checkout 中，不能声称这些 Linux 构建与 KUnit 命令已经通过。它们是后续 Linux VM 或完整源码树中的验证路线。
++
++## 本轮注释策略
++
++本轮只添加少量中文学习注释，目标是帮助阅读关键分派点：
++
++- `fs/open.c::do_dentry_open()`：说明 `inode->i_fop` 如何绑定到 `file->f_op`。
++- `fs/read_write.c::vfs_read()`：说明 VFS read 如何分派到具体文件系统。
++- `fs/read_write.c::vfs_write()`：说明 VFS write 如何进入 `write_iter()` 并受 freeze 保护。
++- `fs/ext4/file.c::ext4_file_write_iter()`：说明 ext4 写入口如何分流 DAX/DIO/buffered。
++- `mm/filemap.c::generic_file_read_iter()`：说明通用 read 最终进入 page cache。
++
++这些注释用于个人学习分支，不建议直接作为上游内核提交风格。
+diff --git a/Documentation/filesystems/agent-study/knowledge/fs_learning_summary.md b/Documentation/filesystems/agent-study/knowledge/fs_learning_summary.md
+new file mode 100644
+index 0000000..1ab30fe
+--- /dev/null
++++ b/Documentation/filesystems/agent-study/knowledge/fs_learning_summary.md
+@@ -0,0 +1,109 @@
++# Linux 文件系统源码学习总览
++
++## 本轮学习范围
++
++本轮多 agent 协同学习基于 Linux 源码提交 `f5e5d35`，重点覆盖以下目录和文件：
++
++- VFS：`fs/open.c`、`fs/read_write.c`、`fs/namei.c`、`fs/file_table.c`、`include/linux/fs.h`
++- ext4：`fs/ext4/file.c`、`fs/ext4/inode.c`、`fs/ext4/super.c`、`fs/ext4/namei.c`、`fs/ext4/ext4.h`
++- page cache/writeback：`mm/filemap.c`、`mm/readahead.c`、`mm/page-writeback.c`、`mm/truncate.c`、`fs/buffer.c`
++- 测试：`fs/ext4/.kunitconfig`、`fs/ext4/*-test.c`、`tools/testing/selftests/filesystems/`、`Documentation/filesystems/`
++
++本目录下的报告由多个子 agent 分工完成，再由 Manager Agent 汇总。每份报告都要求引用具体源码文件和函数，并明确标注不确定点。
++
++## 文件系统栈的分层
++
++```text
++用户态程序
++  -> open/read/write/fsync 等系统调用
++  -> VFS：fd table、path lookup、dentry、inode、file、super_block
++  -> 具体文件系统：ext4_file_operations、ext4_sops、ext4 address_space_operations
++  -> page cache / iomap / buffer_head / writeback
++  -> block layer / device
++```
++
++VFS 不代表某种磁盘格式，它负责统一对象模型和调用分派。ext4 是具体文件系统实现，通过 VFS 的操作表接入系统调用路径。page cache 位于通用 MM 层与具体文件系统之间，用 `struct address_space` 和 `address_space_operations` 把缓存、预读、脏页、写回连接起来。
++
++## 核心对象关系
++
++- `struct super_block`：一次挂载实例，保存 `s_op`、`s_root`、`s_fs_info` 等。
++- `struct inode`：文件对象的元数据，保存 `i_op`、`i_fop`、`i_mapping`、`i_sb`。
++- `struct dentry`：目录项缓存，表示“名字到 inode”的关系，可为 negative dentry。
++- `struct file`：一次打开后的文件实例，保存 `f_path`、`f_inode`、`f_op`、`f_mapping`、`f_pos`。
++- `struct address_space`：文件 page cache 的宿主，保存 `i_pages`、`a_ops`、`host`、dirty/writeback 状态。
++
++`fs/open.c::do_dentry_open()` 是理解 VFS 分派的关键点：它从 `dentry` 找到 `inode`，再把 `inode->i_fop` 绑定到本次打开的 `struct file`。后续 `vfs_read()`、`vfs_write()` 就通过 `file->f_op` 调用具体文件系统。
++
++## 主调用链
++
++### open
++
++```text
++open/openat/openat2
++  -> do_sys_open()
++  -> do_sys_openat2()
++  -> do_file_open()
++  -> path_openat()
++  -> open_last_lookups()
++  -> do_open()
++  -> vfs_open()
++  -> do_dentry_open()
++  -> file->f_op->open()，例如 ext4_file_open()
++```
++
++### read
++
++```text
++read()
++  -> ksys_read()
++  -> vfs_read()
++  -> new_sync_read()
++  -> file->f_op->read_iter()
++  -> ext4_file_read_iter()
++  -> generic_file_read_iter()
++  -> filemap_read()
++  -> mapping->a_ops->read_folio()/readahead()
++```
++
++Direct I/O 和 DAX 会在 ext4 层分流到 `iomap_dio_rw()` 或 `dax_iomap_rw()`。
++
++### write
++
++```text
++write()
++  -> ksys_write()
++  -> vfs_write()
++  -> new_sync_write()
++  -> file->f_op->write_iter()
++  -> ext4_file_write_iter()
++  -> ext4_dio_write_iter() 或 ext4_buffered_write_iter()
++  -> generic_perform_write()
++  -> mapping->a_ops->write_begin()/write_end()
++  -> 后续 writeback 进入 ext4_writepages()
++```
++
++buffered write 先写 page cache，真正块分配和落盘可能被 delayed allocation 推迟到 writeback。Direct I/O 绕过 page cache 的数据面，但进入和退出时仍要处理 page cache 一致性。
++
++## ext4 的接入点
++
++- `fs/ext4/super.c::ext4_init_fs()` 调用 `register_filesystem()` 注册 ext4。
++- `fs/ext4/super.c::__ext4_fill_super()` 设置 `sb->s_op = &ext4_sops`。
++- `fs/ext4/inode.c::__ext4_iget()` 根据 inode 类型设置 `i_op`、`i_fop` 和 `a_ops`。
++- `fs/ext4/namei.c::ext4_create()` 创建普通文件时设置 `ext4_file_inode_operations`、`ext4_file_operations` 和 `ext4_set_aops()`。
++- `fs/ext4/file.c::ext4_file_operations` 提供 read/write/open/fsync 等入口。
++
++## 学习结论
++
++1. 学 VFS 时先抓住 `struct file` 的形成过程，再看 read/write 如何通过 `file_operations` 分派。
++2. 学 ext4 时要把 `file_operations`、`inode_operations`、`super_operations` 和 `address_space_operations` 分开看。
++3. 学 write path 时不能只看 `write_iter()`，还必须追 page cache、delalloc、writeback、journal 和 extent 映射。
++4. ext4 patch 风险主要来自锁顺序、journal credit、崩溃一致性、page cache/DIO 混用、特性组合和错误路径。
++5. 对学习型中文注释 patch，最重要的验证是确认 diff 只改注释和文档，不改变语义。
++
++## 后续阅读路线
++
++1. 先读 `Documentation/filesystems/vfs.rst`、`path-lookup.rst`、`locking.rst`。
++2. 跟踪最小路径：`open("a", O_RDONLY)`、`read(fd)`、`write(fd)`。
++3. 再加入 ext4：`ext4_file_open()`、`ext4_file_read_iter()`、`ext4_file_write_iter()`。
++4. 然后深入 page cache：`generic_file_read_iter()`、`filemap_read()`、`generic_perform_write()`、`ext4_writepages()`。
++5. 最后进入复杂专题：DIO、DAX、fsync、journal、extent、delalloc、truncate、rename、crash consistency。
+diff --git a/Documentation/filesystems/agent-study/knowledge/read_write_path.md b/Documentation/filesystems/agent-study/knowledge/read_write_path.md
+new file mode 100644
+index 0000000..052fec5
+--- /dev/null
++++ b/Documentation/filesystems/agent-study/knowledge/read_write_path.md
+@@ -0,0 +1,111 @@
++# VFS、ext4 与 Page Cache 读写路径
++
++## 读路径
++
++```text
++fs/read_write.c::SYSCALL_DEFINE3(read)
++  -> ksys_read()
++  -> vfs_read()
++      -> 权限、access_ok、rw_verify_area
++      -> new_sync_read()
++          -> file->f_op->read_iter()
++             ext4: fs/ext4/file.c::ext4_file_read_iter()
++               -> DAX: ext4_dax_read_iter()
++               -> Direct I/O: ext4_dio_read_iter()
++               -> Buffered: generic_file_read_iter()
++                   -> mm/filemap.c::filemap_read()
++                      -> page cache 命中：copy_folio_to_iter()
++                      -> page cache miss：read_folio/readahead
++                         ext4: ext4_read_folio()/ext4_readahead()
++```
++
++关键理解点：
++
++- `vfs_read()` 只做通用检查和分派，不理解 ext4 磁盘布局。
++- `ext4_file_read_iter()` 决定 DAX、Direct I/O、buffered read 的分支。
++- `generic_file_read_iter()` 是大多数可直接使用 page cache 的文件系统的通用读入口。
++- `filemap_read()` 管理 folio 查找、等待、预读和复制；真正读盘由 `mapping->a_ops` 交给文件系统。
++
++## 写路径
++
++```text
++fs/read_write.c::SYSCALL_DEFINE3(write)
++  -> ksys_write()
++  -> vfs_write()
++      -> 权限、access_ok、rw_verify_area
++      -> file_start_write()
++      -> new_sync_write()
++          -> file->f_op->write_iter()
++             ext4: fs/ext4/file.c::ext4_file_write_iter()
++               -> DAX: ext4_dax_write_iter()
++               -> Direct I/O: ext4_dio_write_iter()
++               -> Buffered: ext4_buffered_write_iter()
++                    -> generic_perform_write()
++                       -> mapping->a_ops->write_begin()
++                       -> copy_folio_from_iter_atomic()
++                       -> mapping->a_ops->write_end()
++                    -> generic_write_sync()
++```
++
++关键理解点：
++
++- `file_start_write()` 和 `file_end_write()` 参与 freeze 保护。
++- buffered write 写入 page cache，不代表马上写入磁盘。
++- ext4 的 delayed allocation 可能把真正物理块分配推迟到 `ext4_writepages()`。
++- Direct I/O 绕过 page cache 数据面，但仍需要等待或失效同范围 page cache，避免陈旧数据。
++
++## writeback 路径
++
++```text
++dirty folio
++  -> writeback 触发
++  -> do_writepages()
++  -> mapping->a_ops->writepages()
++     ext4: ext4_writepages()
++       -> ext4_do_writepages()
++       -> ext4_map_blocks()
++       -> 提交 BIO
++       -> 处理 journal、unwritten extent、io_end
++```
++
++关键理解点：
++
++- writeback 是 buffered write 后半段的重要部分。
++- `writeback_control` 控制本轮写回范围、同步模式、写回数量。
++- ext4 writeback 同时处理延迟分配、extent 映射、BIO 合并和 journal 一致性。
++
++## fsync 路径
++
++```text
++fsync/fdatasync
++  -> file->f_op->fsync()
++     ext4: ext4_sync_file()
++       -> file_write_and_wait_range()
++       -> ext4_fsync_journal()
++       -> ext4_fc_commit() 或 full commit
++       -> 必要时 blkdev_issue_flush()
++```
++
++关键理解点：
++
++- fsync 不只是“写数据”，还要确保相关 journal transaction 达到一致性要求。
++- `fdatasync` 和 `fsync` 等待的元数据范围可能不同。
++- ordered/journalled/nojournal 模式会影响具体路径。
++
++## 学习用追踪点
++
++可以用 ftrace/bpftrace 或 printk 风格实验观察这些函数：
++
++- `do_sys_openat2`
++- `path_openat`
++- `do_dentry_open`
++- `vfs_read`
++- `vfs_write`
++- `ext4_file_open`
++- `ext4_file_read_iter`
++- `ext4_file_write_iter`
++- `generic_file_read_iter`
++- `filemap_read`
++- `generic_perform_write`
++- `ext4_writepages`
++- `ext4_sync_file`
+diff --git a/Documentation/filesystems/agent-study/records/run_log.md b/Documentation/filesystems/agent-study/records/run_log.md
+new file mode 100644
+index 0000000..a399433
+--- /dev/null
++++ b/Documentation/filesystems/agent-study/records/run_log.md
+@@ -0,0 +1,55 @@
++# 多 Agent 协作运行记录
++
++## 2026-05-30 初始化
++
++Manager Agent 完成以下动作：
++
++1. 确认工作目录为 `D:\demo\kernel`。
++2. 使用 sparse checkout 下载 Linux 内核源码相关目录。
++3. 创建本地分支 `agent-fs-study-cn`。
++4. 创建学习文档目录 `Documentation/filesystems/agent-study/`。
++5. 写入 agent 组织架构和任务板。
++
++## 子 Agent 运行记录
++
++后续每个子 agent 的任务、输出和 Manager 汇总结果会追加到本文件。
++
++## 子 Agent 第一轮完成情况
++
++| Agent | 子 agent id | 昵称 | 输出 | 结果 |
++|---|---|---|---|---|
++| VFS Agent | `019e768e-73ce-7bf3-b6f7-4570b5a30737` | Confucius | `reports/vfs_agent_report.md` | 完成 |
++| Ext4 Agent | `019e768e-9169-7bc0-bafd-666a40c4f50e` | Carson | `reports/ext4_agent_report.md` | 完成 |
++| Page Cache Agent | `019e768e-af3b-72c1-a54d-a09da1e4cae4` | Aquinas | `reports/page_cache_agent_report.md` | 完成 |
++| Testing Agent | `019e768e-d5b6-7841-b23e-483a2e490640` | Kuhn | `reports/testing_agent_report.md` | 完成 |
++
++## Manager 汇总动作
++
++Manager Agent 读取四份子 agent 报告后，新增以下知识库文档：
++
++- `knowledge/fs_learning_summary.md`
++- `knowledge/read_write_path.md`
++- `knowledge/development_workflow.md`
++
++Manager Agent 已在关键源码入口加入少量中文学习注释。注释仅用于个人学习分支，不改变内核逻辑。
++
++## Review Agent 审查结果
++
++Review Agent 已写入 `reports/review_agent_report.md`，结论为 `pass`。审查确认：
++
++- 四份子 agent 报告均引用了源码文件和函数名。
++- Manager 汇总文档与子 agent 主线结论一致。
++- 源码 patch 仅新增中文学习注释，不改变逻辑。
++- 当前 Windows/PowerShell 与 sparse checkout 环境下未实际运行内核构建、KUnit、selftests、xfstests，已在报告中明确标注。
++
++## Manager 最终检查
++
++Manager Agent 根据 Review Agent 的非阻塞建议，已把运行记录中的“计划添加注释”更新为“已添加注释”。
++
++本地已完成的轻量检查：
++
++```text
++git diff --check
++```
++
++结果：通过，无 whitespace error。
+diff --git a/Documentation/filesystems/agent-study/records/task_board.md b/Documentation/filesystems/agent-study/records/task_board.md
+new file mode 100644
+index 0000000..5c3268d
+--- /dev/null
++++ b/Documentation/filesystems/agent-study/records/task_board.md
+@@ -0,0 +1,28 @@
++# Agent 协作任务板
++
++## 运行信息
++
++- 工作目录：`D:\demo\kernel\linux-src`
++- Git 分支：`agent-fs-study-cn`
++- 源码来源：`https://github.com/torvalds/linux.git`
++- 当前源码提交：由 Manager 在最终记录中填写。
++
++## 任务列表
++
++| ID | 任务 | 负责人 | 状态 | 输出 |
++|---|---|---|---|---|
++| T001 | 研究 VFS open/read/write 和核心对象关系 | VFS Agent | done | `reports/vfs_agent_report.md` |
++| T002 | 研究 ext4 注册、读写入口、inode 和 journaling 关系 | Ext4 Agent | done | `reports/ext4_agent_report.md` |
++| T003 | 研究 page cache、readahead、writeback 路径 | Page Cache Agent | done | `reports/page_cache_agent_report.md` |
++| T004 | 研究文件系统相关测试和验证方式 | Testing Agent | done | `reports/testing_agent_report.md` |
++| T005 | 汇总知识库和协作记录 | Manager Agent | done | `knowledge/*.md`、`records/*.md` |
++| T006 | 交叉审查文档和注释 | Review Agent | done | `reports/review_agent_report.md` |
++| T007 | 添加少量中文学习注释 | Manager Agent | done | 源码注释 patch |
++| T008 | 创建本地 Git 提交 | Manager Agent | done | Git commit |
++
++## 协作原则
++
++- 各 agent 只负责自己的报告文件，避免写入冲突。
++- Manager 负责汇总和最终提交。
++- Review Agent 不直接修改文档，只提出阻塞问题和改进建议。
++- 任何代码注释都必须保持 C 语法正确，不改变运行逻辑。
+diff --git a/Documentation/filesystems/agent-study/reports/ext4_agent_report.md b/Documentation/filesystems/agent-study/reports/ext4_agent_report.md
+new file mode 100644
+index 0000000..854c404
+--- /dev/null
++++ b/Documentation/filesystems/agent-study/reports/ext4_agent_report.md
+@@ -0,0 +1,472 @@
++# Ext4 Agent 代码阅读报告
++
++本报告基于当前分支 `agent-fs-study-cn` 中的 ext4 源码阅读，重点文件包括 `fs/ext4/file.c`、`fs/ext4/inode.c`、`fs/ext4/super.c`、`fs/ext4/namei.c`、`fs/ext4/ext4.h`、`fs/ext4/ext4_jbd2.h`。为说明 `fsync` 调用链，也额外查阅了 `fs/ext4/fsync.c`。
++
++## 1. super_operations、file_operations、inode_operations 的注册
++
++### 文件系统类型与 super_operations
++
++ext4 作为 VFS 文件系统类型注册在 `fs/ext4/super.c`：
++
++- `static struct file_system_type ext4_fs_type` 定义 `.name = "ext4"`、`.init_fs_context = ext4_init_fs_context`、`.kill_sb = ext4_kill_sb` 等字段。
++- `ext4_init_fs()` 初始化 ext4 的缓存、sysfs、mballoc、fast commit dentry cache 等内部资源后，调用 `register_filesystem(&ext4_fs_type)`。
++- 挂载时 VFS 通过 `ext4_init_fs_context()` 设置 `fs_context_operations`，其中 `.get_tree = ext4_get_tree`。
++- `ext4_get_tree()` 调用 `get_tree_bdev(fc, ext4_fill_super)`，进入块设备挂载路径。
++- `ext4_fill_super()` 进一步调用 `__ext4_fill_super()`。
++- `__ext4_fill_super()` 在已经建立足够的 superblock 上下文后执行：
++  - `sb->s_op = &ext4_sops`
++  - `sb->s_export_op = &ext4_export_ops`
++  - `sb->s_xattr = ext4_xattr_handlers`
++  - 在配置启用时设置 `s_cop`、`s_vop`、quota 相关操作。
++
++`ext4_sops` 是 ext4 对 VFS superblock 生命周期和同步接口的实现，主要字段包括：
++
++- `.alloc_inode = ext4_alloc_inode`
++- `.free_inode = ext4_free_in_core_inode`
++- `.destroy_inode = ext4_destroy_inode`
++- `.write_inode = ext4_write_inode`
++- `.dirty_inode = ext4_dirty_inode`
++- `.drop_inode = ext4_drop_inode`
++- `.evict_inode = ext4_evict_inode`
++- `.put_super = ext4_put_super`
++- `.sync_fs = ext4_sync_fs`
++- `.freeze_fs = ext4_freeze`
++- `.unfreeze_fs = ext4_unfreeze`
++- `.statfs = ext4_statfs`
++- `.show_options = ext4_show_options`
++- `.shutdown = ext4_shutdown`
++- quota 配置下还会设置 `.quota_read`、`.quota_write`、`.get_dquots`。
++
++### 普通文件 file_operations 与 inode_operations
++
++普通文件的操作表定义在 `fs/ext4/file.c`：
++
++- `const struct file_operations ext4_file_operations`
++  - `.llseek = ext4_llseek`
++  - `.read_iter = ext4_file_read_iter`
++  - `.write_iter = ext4_file_write_iter`
++  - `.iopoll = iocb_bio_iopoll`
++  - `.unlocked_ioctl = ext4_ioctl`
++  - `.mmap_prepare = ext4_file_mmap_prepare`
++  - `.open = ext4_file_open`
++  - `.release = ext4_release_file`
++  - `.fsync = ext4_sync_file`
++  - `.splice_read = ext4_file_splice_read`
++  - `.splice_write = iter_file_splice_write`
++  - `.fallocate = ext4_fallocate`
++  - `.setlease = generic_setlease`
++
++- `const struct inode_operations ext4_file_inode_operations`
++  - `.setattr = ext4_setattr`
++  - `.getattr = ext4_file_getattr`
++  - `.listxattr = ext4_listxattr`
++  - `.get_inode_acl = ext4_get_acl`
++  - `.set_acl = ext4_set_acl`
++  - `.fiemap = ext4_fiemap`
++  - `.fileattr_get = ext4_fileattr_get`
++  - `.fileattr_set = ext4_fileattr_set`
++
++普通文件 inode 获得这些操作表有两条关键路径：
++
++1. 新建文件：`fs/ext4/namei.c::ext4_create()` 调用 `ext4_new_inode_start_handle()` 创建 inode 后，设置：
++   - `inode->i_op = &ext4_file_inode_operations`
++   - `inode->i_fop = &ext4_file_operations`
++   - `ext4_set_aops(inode)`
++   然后通过 `ext4_add_nondir()` 把 inode 连接到 dentry。
++
++2. 从磁盘读 inode：`fs/ext4/inode.c::__ext4_iget()` 检查 inode 类型。对 `S_ISREG(inode->i_mode)` 的普通文件，同样设置：
++   - `inode->i_op = &ext4_file_inode_operations`
++   - `inode->i_fop = &ext4_file_operations`
++   - `ext4_set_aops(inode)`
++
++### 目录、特殊文件、符号链接的 inode_operations
++
++`fs/ext4/namei.c` 中定义目录和特殊文件的 inode 操作：
++
++- `const struct inode_operations ext4_dir_inode_operations`
++  - `.create = ext4_create`
++  - `.lookup = ext4_lookup`
++  - `.link = ext4_link`
++  - `.unlink = ext4_unlink`
++  - `.symlink = ext4_symlink`
++  - `.mkdir = ext4_mkdir`
++  - `.rmdir = ext4_rmdir`
++  - `.mknod = ext4_mknod`
++  - `.tmpfile = ext4_tmpfile`
++  - `.rename = ext4_rename2`
++  - 以及 `setattr/getattr/xattr/acl/fiemap/fileattr` 等。
++
++- `const struct inode_operations ext4_special_inode_operations`
++  - 主要提供 `setattr/getattr/listxattr/acl` 等元数据操作。
++
++目录的 `file_operations` 在 `fs/ext4/dir.c` 中定义为 `ext4_dir_operations`，包括：
++
++- `.open = ext4_dir_open`
++- `.llseek = ext4_dir_llseek`
++- `.read = generic_read_dir`
++- `.iterate_shared = ext4_readdir`
++- `.fsync = ext4_sync_file`
++- `.release = ext4_release_dir`
++
++新建目录时，`ext4_mkdir()` 设置：
++
++- `inode->i_op = &ext4_dir_inode_operations`
++- `inode->i_fop = &ext4_dir_operations`
++
++特殊文件由 `ext4_mknod()` 设置 `inode->i_op = &ext4_special_inode_operations`。符号链接操作表包括 `ext4_symlink_inode_operations`、`ext4_fast_symlink_inode_operations`、`ext4_encrypted_symlink_inode_operations`，具体选择发生在创建符号链接和 `__ext4_iget()` 的 inode 类型分支中。
++
++## 2. open/read/write/fsync 的关键入口和调用链
++
++### open
++
++普通文件 open 的 VFS 入口来自 `ext4_file_operations.open = ext4_file_open`。
++
++关键路径：
++
++```text
++VFS open
++  -> file->f_op->open()
++  -> ext4_file_open(inode, filp)
++      -> 写打开: ext4_emergency_state()
++         读打开: ext4_forced_shutdown() 检查
++      -> ext4_sample_last_mounted()
++      -> fscrypt_file_open()
++      -> fsverity_file_open()
++      -> 写打开且有 journal: ext4_inode_attach_jinode()
++      -> 根据 inode 能力设置 FMODE_CAN_ATOMIC_WRITE
++      -> 设置 FMODE_NOWAIT | FMODE_CAN_ODIRECT
++      -> dquot_file_open()
++```
++
++`ext4_inode_attach_jinode()` 会为带 journal 的写打开 inode 分配并初始化 `struct jbd2_inode`，挂到 `EXT4_I(inode)->jinode`。后续 ordered/journalled 数据模式和 fsync 需要依赖它追踪 inode 的数据范围与事务关系。
++
++### read
++
++普通文件 read 的 VFS 入口是 `ext4_file_operations.read_iter = ext4_file_read_iter`。
++
++关键路径：
++
++```text
++VFS read/readv/io_uring read
++  -> file->f_op->read_iter()
++  -> ext4_file_read_iter(iocb, to)
++      -> ext4_forced_shutdown() 检查
++      -> 空 iov: 返回 0
++      -> DAX inode: ext4_dax_read_iter()
++          -> dax_iomap_rw(..., &ext4_iomap_ops)
++      -> IOCB_DIRECT: ext4_dio_read_iter()
++          -> inode_lock_shared()
++          -> ext4_should_use_dio()
++          -> iomap_dio_rw(..., &ext4_iomap_ops)
++          -> file_accessed()
++      -> buffered read:
++          -> generic_file_read_iter()
++              -> page cache / readahead
++              -> mapping->a_ops->read_folio / readahead
++              -> ext4_read_folio() / ext4_readahead()
++              -> ext4_mpage_readpages()
++              -> ext4_map_blocks(NULL, inode, &map, 0)
++              -> bio 提交，必要时 fscrypt/fsverity 后处理
++```
++
++buffered read 的 ext4 特定衔接点主要是 `address_space_operations` 中的 `.read_folio = ext4_read_folio` 和 `.readahead = ext4_readahead`。它们在 `fs/ext4/readpage.c` 中通过 `ext4_mpage_readpages()` 批量查找逻辑块到物理块映射，并组装 BIO。
++
++### write
++
++普通文件 write 的 VFS 入口是 `ext4_file_operations.write_iter = ext4_file_write_iter`。
++
++总入口逻辑：
++
++```text
++VFS write/writev/io_uring write
++  -> file->f_op->write_iter()
++  -> ext4_file_write_iter(iocb, from)
++      -> ext4_emergency_state()
++      -> DAX inode: ext4_dax_write_iter()
++      -> IOCB_ATOMIC: 检查 s_awu_min/s_awu_max 和 generic_atomic_write_valid()
++      -> IOCB_DIRECT: ext4_dio_write_iter()
++      -> 否则: ext4_buffered_write_iter()
++```
++
++buffered write 关键路径：
++
++```text
++ext4_buffered_write_iter()
++  -> 拒绝 NOWAIT buffered write: -EOPNOTSUPP
++  -> inode_lock()
++  -> ext4_write_checks()
++  -> generic_perform_write()
++      -> mapping->a_ops->write_begin()
++      -> 用户数据 copy 到 page cache folio
++      -> mapping->a_ops->write_end()
++  -> inode_unlock()
++  -> generic_write_sync()   // O_SYNC/IOCB_DSYNC 等同步语义
++```
++
++`ext4_set_aops()` 决定 buffered write 具体走哪组 `address_space_operations`：
++
++- `data=journal`：`ext4_journalled_aops`
++  - `.write_begin = ext4_write_begin`
++  - `.write_end = ext4_journalled_write_end`
++- 非 journal-data 且 DAX：`ext4_dax_aops`
++- 挂载启用 delalloc：`ext4_da_aops`
++  - `.write_begin = ext4_da_write_begin`
++  - `.write_end = ext4_da_write_end`
++- 非 delalloc：`ext4_aops`
++  - `.write_begin = ext4_write_begin`
++  - `.write_end = ext4_write_end`
++
++非 delalloc buffered write 中，`ext4_write_begin()` 会在准备 folio 和 buffer head 后启动 journal handle：
++
++```text
++ext4_write_begin()
++  -> write_begin_get_folio()
++  -> create_empty_buffers()
++  -> ext4_journal_start(..., EXT4_HT_WRITE_PAGE, needed_blocks)
++  -> ext4_block_write_begin(..., ext4_get_block 或 ext4_get_block_unwritten)
++      -> ext4_get_block()
++          -> _ext4_get_block()
++          -> ext4_map_blocks(ext4_journal_current_handle(), ...)
++```
++
++`ext4_write_end()` 则通过 `block_write_end()` 完成 page cache/buffer 状态更新，必要时更新 `i_size`、调用 `ext4_mark_inode_dirty()`，最后 `ext4_journal_stop(handle)`。
++
++delalloc buffered write 中，`ext4_da_write_begin()` 通常不立即分配真实磁盘块，而是通过 `ext4_da_get_block_prep()` 建立延迟分配状态并保留空间；`ext4_da_write_end()` 更新 page cache、`i_size`，需要时启动小事务更新 `i_disksize`。真正分配物理块通常推迟到 writeback：
++
++```text
++writeback
++  -> mapping->a_ops->writepages = ext4_writepages()
++  -> ext4_do_writepages()
++  -> mpage_prepare_extent_to_map()
++  -> mpage_map_and_submit_extent()
++  -> mpage_map_one_extent()
++  -> ext4_map_blocks(handle, ..., EXT4_GET_BLOCKS_CREATE | EXT4_GET_BLOCKS_IO_SUBMIT | ...)
++  -> mpage_map_and_submit_buffers()
++  -> ext4_io_submit()
++```
++
++direct I/O write 关键路径：
++
++```text
++ext4_dio_write_iter()
++  -> 根据是否扩展文件选择 inode_lock_shared() 或 inode_lock()
++  -> ext4_should_use_dio(); 不支持则回退 ext4_buffered_write_iter()
++  -> ext4_dio_write_checks()
++  -> 扩展写时:
++       ext4_journal_start(... EXT4_HT_INODE ...)
++       ext4_orphan_add()
++       ext4_journal_stop()
++  -> iomap_dio_rw(..., &ext4_iomap_ops, &ext4_dio_write_ops, ...)
++       -> ext4_iomap_begin()
++       -> 已映射覆盖写可直接 ext4_map_blocks(NULL, ..., 0)
++       -> 需要分配/转换时 ext4_iomap_alloc()
++            -> ext4_journal_start(... EXT4_HT_MAP_BLOCKS ...)
++            -> ext4_map_blocks(handle, ..., CREATE/UNWRIT/CONVERT flags)
++            -> ext4_journal_stop()
++  -> 必要时 ext4_handle_inode_extension()
++  -> 必要时 ext4_inode_extension_cleanup()
++  -> 部分 DIO 回退 buffered write 时，调用 filemap_write_and_wait_range() 和 invalidate_mapping_pages()
++```
++
++DAX write 与 DIO 类似使用 iomap，但调用 `dax_iomap_rw()`，扩展写同样需要 journal/orphan 保护和 inode size 更新。
++
++### fsync
++
++普通文件和目录都把 `.fsync` 指向 `ext4_sync_file`，实现位于 `fs/ext4/fsync.c`。
++
++关键路径：
++
++```text
++VFS fsync/fdatasync/msync
++  -> file->f_op->fsync()
++  -> ext4_sync_file(file, start, end, datasync)
++      -> ext4_emergency_state()
++      -> ASSERT 当前任务没有打开的 ext4 journal handle
++      -> 只读 superblock: 直接退出到错误检查
++      -> 无 journal:
++           ext4_fsync_nojournal()
++             -> mmb_fsync_noflush()
++             -> ext4_write_inode()
++             -> ext4_sync_parent()
++             -> 必要时请求 flush barrier
++      -> 有 journal:
++           file_write_and_wait_range(file, start, end)
++           ext4_fsync_journal(inode, datasync, &needs_barrier)
++             -> 目录/特殊文件: ext4_force_commit()
++             -> 普通文件: commit_tid = datasync ? i_datasync_tid : i_sync_tid
++             -> ext4_fc_commit(journal, commit_tid)
++      -> needs_barrier 时 blkdev_issue_flush()
++      -> file_check_and_advance_wb_err()
++```
++
++这里的核心点是：普通有 journal 的 fsync 先确保数据页写回，再等待对应事务提交。事务号由 `EXT4_I(inode)->i_sync_tid` 和 `i_datasync_tid` 记录，更新点通常在 inode/metadata 被 journal handle 修改时通过 `ext4_update_inode_fsync_trans()` 或相关路径维护。
++
++## 3. inode、extent、journal/jbd2 在读写路径中的作用
++
++### inode
++
++ext4 的内存 inode 是 `struct ext4_inode_info`，其中嵌入 VFS inode：
++
++- `struct inode vfs_inode`
++- `__le32 i_data[15]`：传统块映射或 extent root 的存储区域。
++- `loff_t i_disksize`：磁盘上记录的文件大小，可能与 VFS `i_size` 暂时不同。truncate、延迟分配、writeback、崩溃恢复都依赖它区分内存大小和已持久化大小。
++- `struct rw_semaphore i_data_sem`：保护 extent/indirect block 映射树，防止 truncate 与 block mapping/分配并发破坏一致性。
++- `struct jbd2_inode *jinode`：jbd2 用来跟踪 inode 相关数据范围和事务。
++- `struct ext4_es_tree i_es_tree`：extent status cache，缓存 written/unwritten/delayed/hole 状态，`ext4_map_blocks()` 会优先查它。
++- `i_reserved_data_blocks`、prealloc 结构：delalloc 和预分配路径使用。
++- fast commit 相关字段：`i_fc_*` 用于记录需要 fast commit 的 inode/range。
++
++读路径中，inode 提供文件大小、块大小、加密/verity/DAX/inline data 状态，以及逻辑块到物理块映射的根。写路径中，inode 还承载锁、延迟分配状态、磁盘大小、orphan 保护和 journal 跟踪信息。
++
++### extent 与块映射
++
++extent 格式定义在 `fs/ext4/ext4_extents.h`：
++
++- `struct ext4_extent_header`：extent tree header，记录 magic、entries、max、depth、generation。
++- `struct ext4_extent`：叶子节点，记录第一个逻辑块、长度、物理起始块高低位。
++- `struct ext4_extent_idx`：非叶子索引节点，指向下一层 extent block。
++
++`EXT4_I(inode)->i_data` 中可以直接容纳 extent root。`ext_inode_hdr(inode)` 把 `i_data` 解释为 extent header。
++
++读写路径统一通过 `struct ext4_map_blocks` 表达一次逻辑块映射请求：
++
++- `m_lblk`：起始逻辑块。
++- `m_len`：请求/返回的块数。
++- `m_pblk`：物理块。
++- `m_flags`：`EXT4_MAP_MAPPED`、`EXT4_MAP_NEW`、`EXT4_MAP_UNWRITTEN`、`EXT4_MAP_DELAYED`、`EXT4_MAP_BOUNDARY` 等。
++
++核心函数是 `ext4_map_blocks(handle, inode, &map, flags)`：
++
++1. 先查 extent status tree。
++2. 如果缓存没有满足请求，则持有 `i_data_sem` 读锁调用 `ext4_map_query_blocks()`。
++3. extent inode 走 `ext4_ext_map_blocks()`，非 extent inode 走 `ext4_ind_map_blocks()`。
++4. 只查询时，没有映射会返回 hole 信息。
++5. 带 `EXT4_GET_BLOCKS_CREATE` 时，持有 `i_data_sem` 写锁调用 `ext4_map_create_blocks()` 分配或转换块。
++6. 新分配且 ordered data 模式下，会把数据范围加入 jbd2 inode 的 ordered data 列表。
++7. 记录 fast commit range：`ext4_fc_track_range()`。
++
++因此 extent 层既是读路径查找物理块的位置，也是写路径分配、延迟分配落盘、unwritten extent 转 written extent、truncate/punch hole 修改空间布局的核心。
++
++### journal/jbd2
++
++`fs/ext4/ext4_jbd2.h` 是 ext4 对 jbd2 的包装层。常用模式是：
++
++```text
++handle = ext4_journal_start(inode 或 sb, type, credits)
++  -> 修改 inode、目录块、位图、extent tree、superblock 等 metadata
++  -> ext4_journal_get_write_access()
++  -> ext4_handle_dirty_metadata()
++  -> ext4_mark_inode_dirty()
++ext4_journal_stop(handle)
++```
++
++关键包装包括：
++
++- `ext4_journal_start()`、`ext4_journal_start_sb()`、`ext4_journal_stop()`。
++- `ext4_journal_extend()`、`ext4_journal_restart()`、`ext4_journal_ensure_credits()`：处理事务 credit 不足。
++- `ext4_handle_valid()`：无 journal 模式下 handle 可以是特殊非 jbd2 值。
++- `ext4_jbd2_inode_add_write()`、`ext4_jbd2_inode_add_wait()`：把 ordered data 范围登记到 jbd2 inode。
++- `ext4_update_inode_fsync_trans()`：记录后续 fsync 需要等待的事务号。
++- `ext4_journal_force_commit()`/`ext4_force_commit()`：强制提交事务。
++
++在写路径中的典型作用：
++
++- buffered 非 delalloc 写：`ext4_write_begin()` 在 block instantiation 和 `write_end` 之间持有同一个 transaction handle，避免分配块与提交数据之间崩溃导致不一致。
++- delalloc writeback：`ext4_writepages()` 启动 journal handle 后调用 `ext4_map_blocks()` 真正分配块，并把映射后的页提交 BIO。
++- DIO/DAX：`ext4_iomap_alloc()` 在需要分配或转换 extent 时启动 journal handle。
++- extending write：通过 orphan list 保护，防止崩溃后留下超过 inode size 的已分配块或未完成扩展。
++- fsync：根据 inode 记录的事务号等待 fast commit/full commit，并在需要时发设备 flush。
++
++## 4. ext4 和 VFS/page cache 的衔接点
++
++### VFS 对象上的衔接
++
++- `struct super_block.s_op = &ext4_sops`：superblock 生命周期、sync、freeze、statfs、inode 写回等。
++- `struct inode.i_op`：文件名空间和 inode 元数据操作，如 create、lookup、setattr、getattr、fiemap。
++- `struct inode.i_fop`：打开文件后的读写、mmap、fsync、ioctl、splice、fallocate。
++- `struct address_space.i_mapping->a_ops`：page cache 与文件系统块映射、写回、失效、迁移的接口。
++
++### address_space_operations
++
++`ext4_set_aops()` 根据 inode 的数据模式和挂载选项选择：
++
++- `ext4_aops`：普通非 delalloc buffered I/O。
++- `ext4_da_aops`：delalloc buffered I/O。
++- `ext4_journalled_aops`：data=journal 模式。
++- `ext4_dax_aops`：DAX inode。
++
++几个核心回调：
++
++- `.read_folio = ext4_read_folio`
++- `.readahead = ext4_readahead`
++- `.writepages = ext4_writepages`
++- `.write_begin = ext4_write_begin` 或 `ext4_da_write_begin`
++- `.write_end = ext4_write_end`、`ext4_da_write_end` 或 `ext4_journalled_write_end`
++- `.dirty_folio = ext4_dirty_folio` 或 `ext4_journalled_dirty_folio`
++- `.invalidate_folio = ext4_invalidate_folio` 或 `ext4_journalled_invalidate_folio`
++- `.release_folio = ext4_release_folio`
++- `.bmap = ext4_bmap`
++
++### page cache 读写关系
++
++buffered read：
++
++- VFS/generic 层优先从 page cache 满足读。
++- 缺页或 readahead 触发 `ext4_read_folio()`/`ext4_readahead()`。
++- ext4 通过 `ext4_map_blocks()` 获取物理块，组 BIO 读入 folio。
++- hole 部分会 zero fill。
++- fscrypt/fsverity 通过 BIO 后处理完成解密和验证。
++
++buffered write：
++
++- `generic_perform_write()` 负责通用的 page cache 写入循环。
++- ext4 的 `write_begin` 负责准备 folio、buffer heads、块映射或延迟分配、journal handle。
++- 用户数据 copy 到 page cache 后，ext4 的 `write_end` 更新 buffer/folio dirty 状态、`i_size`/`i_disksize` 和 inode dirty 状态。
++- 后续 writeback 调用 `ext4_writepages()`，delalloc 模式下这一步才真正分配物理块。
++
++direct I/O 和 DAX：
++
++- 绕过 page cache 的数据拷贝路径，但仍需要与 page cache 保持一致。
++- DIO 通过 `iomap_dio_rw()` 使用 `ext4_iomap_ops` 获取映射。
++- DAX 通过 `dax_iomap_rw()` 和 `dax_iomap_fault()` 使用同一套 iomap 映射。
++- DIO 回退 buffered 或覆盖已有 page cache 时，会使用 `filemap_write_and_wait_range()`、`invalidate_mapping_pages()` 等同步/失效 page cache。
++
++## 5. 开发 ext4 patch 时的主要风险
++
++1. journal credit 估算错误
++   ext4 很多路径在持有 handle 时修改多个 metadata：inode、extent tree、block bitmap、group descriptor、quota、目录块、orphan 信息等。credit 少了可能导致事务重启时机错误、死锁或失败路径复杂化；credit 多了会影响性能和事务大小。
++
++2. 崩溃一致性和 orphan list 处理错误
++   extending write、truncate、punch hole、rename、unlink 等路径都依赖 journal 与 orphan 机制保证 replay 后一致。漏掉 `ext4_orphan_add()`/`ext4_orphan_del()` 或错误更新 `i_disksize`，可能造成空间泄漏、旧数据暴露或文件大小不一致。
++
++3. page cache、buffer head、extent 状态不一致
++   buffered write、writeback、truncate、invalidate、DIO fallback 都会同时接触 page cache、buffer head 状态和 extent status tree。错误设置 `BH_New/BH_Unwritten/BH_Delay` 或 `EXT4_MAP_*` 标志，可能导致 stale data exposure、重复写回、hole 误判。
++
++4. delalloc 与 writeback 交互复杂
++   delalloc 将分配推迟到 `ext4_writepages()`，错误处理发生在回写上下文，用户态 write 可能早已返回成功。ENOSPC、journal abort、reserved blocks、quota 和 writeback retry 都要谨慎处理。
++
++5. unwritten extent 转换风险
++   DIO、dioread_nolock、预分配和 delayed allocation 都可能使用 unwritten extent。转换时机如果早于数据落盘或遗漏失败处理，会造成读到未初始化数据或崩溃后 extent 状态错误。
++
++6. 锁顺序和并发风险
++   ext4 源码在 `super.c` 顶部明确列出多条锁顺序，典型涉及 `sb_start_write`、`i_rwsem`、`invalidate_lock`、journal transaction、folio lock、`i_data_sem`。新增路径如果调整锁顺序，容易触发 lockdep 或真实死锁。
++
++7. fscrypt/fsverity/DAX/inline data/quota/fast commit 特性组合
++   很多路径都有特性分支。只在默认挂载选项下测试 patch 容易漏掉 data=journal、nojournal、DAX、inline data、encrypted、verity、bigalloc、quota、fast commit 等组合。
++
++8. VFS 语义回归
++   `O_SYNC`、`fdatasync`、`IOCB_NOWAIT`、`IOCB_DIRECT`、atomic write、splice、mmap/page fault、truncate 和 seek hole/data 都有 VFS 可见语义。改 ext4 内部实现时需要确认这些语义没有被破坏。
++
++9. 错误路径和 abort 状态处理
++   ext4 有 `ext4_emergency_state()`、`ext4_forced_shutdown()`、journal abort、只读 remount 等状态。错误路径如果继续写 metadata 或不传播错误，可能扩大损坏。
++
++10. 性能回退
++    读写路径高度优化，例如 extent status cache、delalloc、mballoc、BIO 合并、iomap direct I/O、fast commit。看似安全的同步、flush、事务提交或锁粒度调整，可能造成明显性能退化。
++
++## 6. 不确定点与未深入内容
++
++- 本报告只按任务重点阅读了 ext4 的核心入口和局部相关文件；没有完整展开 `fs/ext4/extents.c`、`fs/ext4/mballoc.c`、`fs/ext4/fast_commit.c`、`fs/jbd2/*` 的内部实现，因此 extent 分裂/合并、mballoc 策略、fast commit record 格式、jbd2 transaction/checkpoint 细节没有细讲。
++- `fsync` 的入口在 `fs/ext4/fsync.c`，不在用户列出的重点文件中；报告中关于 fsync 的调用链来自额外阅读该文件。
++- direct I/O completion、unwritten extent end-I/O 转换、atomic write 的完整失败恢复路径没有逐行验证，只基于 `file.c`、`inode.c` 中入口和 iomap 分配路径总结。
++- 不同内核配置会影响实际路径，例如 `CONFIG_FS_DAX`、`CONFIG_FS_ENCRYPTION`、`CONFIG_FS_VERITY`、quota、fast commit。报告描述的是源码中可见的条件分支，不代表所有运行环境都会启用。
++- 没有运行 fstests、xfstests 或崩溃恢复测试；本文是代码阅读报告，不是行为验证报告。
+diff --git a/Documentation/filesystems/agent-study/reports/page_cache_agent_report.md b/Documentation/filesystems/agent-study/reports/page_cache_agent_report.md
+new file mode 100644
+index 0000000..4ecd766
+--- /dev/null
++++ b/Documentation/filesystems/agent-study/reports/page_cache_agent_report.md
+@@ -0,0 +1,195 @@
++# Page Cache Agent 报告：page cache、readahead、writeback 与文件系统
++
++## 阅读范围
++
++本报告基于以下文件的代码阅读：`mm/filemap.c`、`mm/readahead.c`、`mm/page-writeback.c`、`mm/truncate.c`、`fs/buffer.c`、`include/linux/pagemap.h`、`include/linux/writeback.h`，并补充核对了 ext4 的 `fs/ext4/file.c`、`fs/ext4/inode.c`、`fs/ext4/readpage.c`。
++
++## 1. page cache 在 read/write 路径中的位置
++
++### buffered read
++
++典型 buffered read 路径是：
++
++```text
++file_operations->read_iter
++  -> generic_file_read_iter()
++     -> filemap_read()
++        -> filemap_get_pages()
++           -> mapping->i_pages XArray 查找 page-cache folio
++           -> miss: page_cache_sync_ra()/filemap_create_folio()
++           -> not uptodate: mapping->a_ops->read_folio()
++        -> copy_folio_to_iter()
++```
++
++page cache 位于 `struct address_space` 的 `i_pages` XArray 中，索引是文件偏移转换成的 page/folio index。`filemap_read()` 不直接理解磁盘布局；它负责查找、锁定、等待、触发 readahead/read_folio，并把 uptodate folio 的内容复制到用户 iov_iter。真正把文件逻辑块映射到底层块设备并提交 I/O 的工作由文件系统的 `address_space_operations` 完成。
++
++以 ext4 为例，`ext4_file_read_iter()` 在普通 buffered read 时调用 `generic_file_read_iter()`；后续 miss 或 readahead 会进入 `ext4_read_folio()` / `ext4_readahead()`，再由 `ext4_mpage_readpages()` 组装 BIO。异常情况会退回 `block_read_full_folio()` 这种 buffer_head 路径。
++
++### buffered write
++
++典型 buffered write 路径是：
++
++```text
++file_operations->write_iter
++  -> 文件系统 write checks / inode lock
++  -> generic_perform_write()
++     -> balance_dirty_pages_ratelimited(mapping)
++     -> mapping->a_ops->write_begin()
++        -> 找到或创建 page-cache folio，必要时分配/映射块
++     -> copy_folio_from_iter_atomic()
++     -> mapping->a_ops->write_end()
++        -> 提交本次修改，标记 buffer/folio dirty，更新 i_size
++```
++
++buffered write 先写入 page cache，不一定立即落盘。dirty 状态通过 folio、buffer_head、page-cache tag 和 inode dirty 状态串起来：`mark_buffer_dirty()` 会设置 buffer dirty、folio dirty、`PAGECACHE_TAG_DIRTY`，并把 inode 标成 `I_DIRTY_PAGES`；不使用 buffer_head 的文件系统通常走 `filemap_dirty_folio()`。
++
++ext4 的 buffered write 入口是 `ext4_buffered_write_iter()`，它做 ext4 特有检查后调用 `generic_perform_write()`。是否使用 delayed allocation、data=journal 或普通模式，由 `ext4_set_aops()` 给 inode 选择不同的 aops：
++
++```text
++ext4_da_aops          -> ext4_da_write_begin()/ext4_da_write_end()
++ext4_aops             -> ext4_write_begin()/ext4_write_end()
++ext4_journalled_aops  -> ext4_write_begin()/ext4_journalled_write_end()
++ext4_dax_aops         -> DAX 专用，不走普通 page-cache read/write folio
++```
++
++## 2. buffered read、buffered write、direct I/O 的边界
++
++buffered read/write 的共同点是以 `address_space->i_pages` 为中心，读 miss 会填充 page cache，写会先修改 page cache 并产生 dirty folio。读写的数据一致性依赖 folio uptodate、dirty/writeback tag、`invalidate_lock`、i_size 检查以及文件系统 aops。
++
++direct I/O 的目标是绕过 page cache 直接对存储提交 I/O，但它不能忽略 page cache 的一致性边界：
++
++- generic direct read 路径在 `generic_file_read_iter()` 中会先调用 `kiocb_write_and_wait()`，等待相关范围的 dirty/writeback page cache，再调用 `mapping->a_ops->direct_IO()`。如果 direct read 短读且仍有剩余，通用代码可能回落到 buffered read；DAX 文件不会这样回落。
++- generic direct write 路径 `generic_file_direct_write()` 会在写前调用 `kiocb_invalidate_pages()`，必要时等待并失效对应 page-cache 范围；写后还会尝试 `kiocb_invalidate_post_direct_write()`，避免 clean cached pages 或 mmap/GUP 引入的页留下旧数据。
++- 当前 ext4 direct I/O 主要在 `fs/ext4/file.c` 的 `ext4_dio_read_iter()` / `ext4_dio_write_iter()` 中通过 `iomap_dio_rw()` 实现，而不是依赖 ext4 aops 填 `direct_IO`。如果 ext4 判断该 inode/请求不支持 DIO，会回落到 buffered I/O；direct write 部分完成后若还有剩余 buffered fallback，ext4 会对 fallback 范围做 `filemap_write_and_wait_range()` 和 `invalidate_mapping_pages()` 来尽量保留 direct I/O 语义。
++
++因此边界可以概括为：buffered I/O 以 page cache 为数据面；direct I/O 以块映射/iomap/BIO 为数据面，但进出 direct I/O 前后必须处理 page cache 中同一范围的 dirty、writeback 和 stale cache。
++
++## 3. readahead、dirty page、writeback 的关键函数和调用关系
++
++### readahead
++
++关键结构是每个 `struct file` 内的 `file_ra_state f_ra`，由 `file_ra_state_init()` 根据 backing device 的 `ra_pages` 初始化。
++
++主要调用关系：
++
++```text
++filemap_read()
++  -> filemap_get_pages()
++     -> filemap_get_read_batch()
++     -> batch empty:
++        DEFINE_READAHEAD(...)
++        page_cache_sync_ra()
++          -> 计算窗口 start/size/async_size
++          -> page_cache_ra_order() 或 do_page_cache_ra()
++             -> filemap_add_folio()
++             -> read_pages()
++                -> mapping->a_ops->readahead(rac)
++                -> fallback: mapping->a_ops->read_folio()
++     -> folio_test_readahead(last folio):
++        page_cache_async_ra()
++```
++
++`mm/readahead.c` 的注释说明了两个触发点：cache miss 触发同步 readahead；访问到带 readahead 标记的 folio 触发异步 readahead。`read_pages()` 是从 MM readahead 框架进入文件系统的关键边界。
++
++ext4 的对应路径：
++
++```text
++read_pages()
++  -> ext4_readahead()
++     -> ext4_mpage_readpages()
++        -> 映射 ext4 blocks，合并 BIO，设置 REQ_RAHEAD
++        -> inline data: 不做 readahead
++        -> 特殊/复杂情况: block_read_full_folio()
++```
++
++### dirty page
++
++buffered write 和 mmap shared write 都会把 folio 变 dirty，但入口略有不同：
++
++```text
++generic_perform_write()
++  -> mapping->a_ops->write_begin()
++  -> copy data into folio
++  -> mapping->a_ops->write_end()
++     -> block_write_end()/block_commit_write()
++        -> mark_buffer_dirty()
++           -> __folio_mark_dirty()
++           -> __mark_inode_dirty(..., I_DIRTY_PAGES)
++```
++
++对 buffer_head 文件系统，`block_dirty_folio()` 是常见的 `->dirty_folio` 实现；它先同步 buffer dirty 状态，再设置 folio dirty，最后标记 inode。对非 buffer_head 文件系统，`filemap_dirty_folio()` 是更直接的 folio dirty 实现。
++
++`balance_dirty_pages_ratelimited(mapping)` 在 `generic_perform_write()` 每轮写入前调用，用于周期性检查 dirty 限额并触发/等待 writeback，防止写入者无限堆积 dirty page。
++
++### writeback
++
++关键调用关系：
++
++```text
++filemap_fdatawrite_range()/filemap_flush_range()
++  -> filemap_writeback()
++     -> do_writepages(mapping, wbc)
++        -> mapping->a_ops->writepages(mapping, wbc)
++
++文件系统 writepages 实现
++  -> writeback_iter(mapping, wbc, folio, &error)
++     -> 按 PAGECACHE_TAG_DIRTY/PAGECACHE_TAG_TOWRITE 扫描
++     -> 锁 folio
++     -> folio_prepare_writeback()
++        -> 等待已有 writeback
++        -> folio_clear_dirty_for_io()
++     -> 文件系统提交 I/O
++```
++
++`writeback_control` 描述本轮 writeback：`nr_to_write`、`range_start`、`range_end`、`sync_mode`、`tagged_writepages`、`range_cyclic` 等。`WB_SYNC_ALL` 或 tagged writepages 会先用 `tag_pages_for_writeback()` 把 dirty tag 转为 `PAGECACHE_TAG_TOWRITE`，减少边写边脏导致的 livelock。
++
++ext4 的 writeback 入口是 `ext4_writepages()`，核心是 `ext4_do_writepages()`。它需要处理 delayed allocation、data=journal、dioread_nolock、unwritten extent 转换、journal credits、BIO submit 和 `mapping->writeback_index` 更新。普通 mpage 类文件系统可用 `mpage_writepages()`，其内部也是围绕 `writeback_iter()` 遍历 dirty folio。
++
++## 4. address_space、address_space_operations 与文件系统的衔接
++
++`struct address_space` 是 page cache 与具体文件对象之间的桥：
++
++- `host` 指向拥有者 inode 或 block_device。
++- `i_pages` 保存 page-cache folio。
++- `invalidate_lock` 保护 page cache 内容和文件 offset 到磁盘块映射之间的一致性，truncate/hole punch/direct I/O/read fault 等路径都需要考虑它。
++- `i_mmap` / `i_mmap_writable` 追踪文件映射到用户态的 VMA。
++- `nrpages`、`writeback_index`、`flags`、`wb_err` 记录 cache/writeback 状态。
++- `a_ops` 是文件系统参与 page-cache 生命周期的回调表。
++
++`struct address_space_operations` 中与本主题最相关的回调：
++
++- `read_folio()`：同步读取单个 folio。
++- `readahead()`：批量预读 folio。
++- `write_begin()` / `write_end()`：buffered write 的文件系统准备和提交阶段。
++- `dirty_folio()`：mmap/shared dirty 或其他 set_page_dirty 场景下同步文件系统元数据。
++- `writepages()`：writeback 入口。
++- `invalidate_folio()` / `release_folio()`：truncate、invalidate、回收时释放文件系统私有状态。
++- `is_partially_uptodate()`：支持部分 uptodate 的 buffer_head folio，避免不必要整页读取。
++- `migrate_folio()`、`bmap()`、`swap_activate()` 等是迁移、FIBMAP/swap 等辅助接口。
++
++通用 MM 层只管理 folio 生命周期、tag、锁、LRU、dirty accounting 和 writeback 调度；文件系统通过 aops 决定如何把 folio 中的字节映射到块、如何与日志/延迟分配/加密/verity/DAX 等特性协调。
++
++## 5. 与 ext4 开发相关的风险点
++
++1. direct I/O 与 buffered I/O/mmap 混用的一致性风险。direct write 前后 invalidate 失败时可能留下 stale page cache；通用层甚至有 “possible data corruption due to collision with buffered I/O” 的告警路径。ext4 DIO fallback 到 buffered I/O 后还要 flush/invalidate fallback 范围，这部分不能省。
++
++2. delayed allocation 把 ENOSPC 和块分配推迟到 writeback。`ext4_da_write_begin()` / `ext4_da_write_end()` 只是准备 delalloc 状态，真正分配可能在 `ext4_writepages()`。修改 i_size、i_disksize、orphan list 或错误恢复时，必须考虑崩溃一致性和 late ENOSPC。
++
++3. data=journal 模式的 dirty 语义不同。`ext4_journalled_dirty_folio()` 对 DMA pinned folio 使用 pending dirty/check 标记；不能随意把 folio dirty、buffer dirty、jbd dirty 当作同一件事。buffer 状态在 journalled data 下是权威信息之一。
++
++4. lock ordering 容易踩雷。`mm/filemap.c` 明确列出 `i_rwsem`、`invalidate_lock`、`mmap_lock`、folio lock、`i_pages` lock 等顺序；ext4 又叠加 journal handle。`ext4_write_begin()` 先 grab folio 再启动 transaction，是为了避免内存压力下持有 journal handle 等待 folio。`ext4_do_writepages()` 也避免在未提交 I/O、未释放 folio/io_end 时停止同步 handle。
++
++5. truncate/hole punch 与 page cache 的同步必须完整。`truncate_inode_pages_range()` 会处理 partial folio、等待 writeback、调用 `invalidate_folio()` 并从 page cache 删除 folio。文件系统释放块前后如果没有正确持有 `invalidate_lock` 或清理 folio 私有状态，可能出现旧块数据、SIGBUS 语义或 buffer_head 悬挂问题。
++
++6. buffer_head 与 folio dirty 状态必须一致。`block_dirty_folio()` 和 `try_to_free_buffers()` 通过 `mapping->i_private_lock` 协调；`mark_buffer_dirty()` 同时推进 buffer、folio、page-cache tag 和 inode dirty 状态。修改 ext4 buffer_head 路径时，最危险的是留下 “dirty buffer / clean folio” 或 “clean buffer / dirty folio” 的不一致。
++
++7. large folio、partial uptodate 和 blocksize < pagesize 场景不能按单页假设写代码。`mapping_max_folio_size()`、`write_begin_get_folio()`、`block_is_partially_uptodate()`、`truncate_inode_partial_folio()` 都说明现在 page cache 路径已经是 folio 语义。
++
++8. ext4 read path 还叠加 inline data、fscrypt、fsverity、DAX 等分支。`ext4_readahead()` 对 inline data 直接跳过；`ext4_mpage_readpages()` 在复杂布局下会 fallback 到 buffer_head read。优化 readahead 时不能只看普通 extent 连续映射场景。
++
++## 6. 不确定点
++
++- 本次没有完整展开 `fs/fs-writeback.c` 中 flusher thread、dirty inode list、superblock writeback 与 `do_writepages()` 之间的全部调度链；这里只确认了 page-cache 层和 aops `writepages()` 边界。
++- 本次没有深入 `fs/iomap/` 的 direct I/O 内部实现，因此 ext4 DIO 的 BIO 提交、完成回调、并发细节只记录到 `iomap_dio_rw()` 边界。
++- ext4 的 inline data、fscrypt、fsverity、bigalloc、DAX、journal fast commit 等特性没有逐项完整验证；报告中的风险点只基于本次阅读到的 page-cache 相关路径。
++- 没有对具体内核配置组合做运行验证，例如 DAX、不同 block size、large folio 策略、cgroup writeback、memcg foreign dirty accounting 等；这些会影响部分分支是否可达。
+diff --git a/Documentation/filesystems/agent-study/reports/review_agent_report.md b/Documentation/filesystems/agent-study/reports/review_agent_report.md
+new file mode 100644
+index 0000000..7e2f4a1
+--- /dev/null
++++ b/Documentation/filesystems/agent-study/reports/review_agent_report.md
+@@ -0,0 +1,80 @@
++# Review Agent 审查报告
++
++审查时间：2026-05-30
++
++审查分支：`agent-fs-study-cn`
++
++审查范围：
++
++- 子 agent 报告：`reports/vfs_agent_report.md`、`reports/ext4_agent_report.md`、`reports/page_cache_agent_report.md`、`reports/testing_agent_report.md`
++- Manager 汇总与记录：`knowledge/*.md`、`records/*.md`、`agent_organization.md`
++- 中文学习注释 patch：`fs/open.c`、`fs/read_write.c`、`fs/ext4/file.c`、`mm/filemap.c`
++
++## 1. 准确性与一致性结论
++
++未发现需要阻塞提交的明显技术错误或前后矛盾。
++
++子报告的主线结论一致：VFS 通过 `struct file` 和 `file_operations` 分派读写；ext4 通过 `ext4_file_operations`、`inode_operations`、`address_space_operations` 接入 VFS/page cache；buffered I/O 进入 page cache，Direct I/O/DAX 在 ext4 或通用层分流；writeback/fsync/journal 是 ext4 修改风险的重点。
++
++非阻塞记录瑕疵：`Documentation/filesystems/agent-study/records/run_log.md` 中仍写着 Manager “还计划”加入中文学习注释，但 `records/task_board.md` 已将 T007 标为 done，且当前 diff 已包含注释 patch。这是状态记录用语未完全同步，不影响本轮技术结论。
++
++## 2. 报告源码引用检查
++
++四份子报告均至少引用了源码文件和函数名，满足要求：
++
++- VFS 报告引用了 `fs/open.c:do_dentry_open()`、`fs/read_write.c:vfs_read()`、`fs/read_write.c:vfs_write()`、`fs/namei.c:path_openat()` 等。
++- Ext4 报告引用了 `fs/ext4/file.c:ext4_file_read_iter()`、`fs/ext4/file.c:ext4_file_write_iter()`、`fs/ext4/fsync.c:ext4_sync_file()`、`fs/ext4/inode.c::__ext4_iget()` 等。
++- Page Cache 报告引用了 `mm/filemap.c:filemap_read()`、`mm/filemap.c:generic_file_read_iter()`、`mm/filemap.c:generic_perform_write()`、`fs/ext4/inode.c:ext4_writepages()` 等。
++- Testing 报告引用了 `fs/ext4/.kunitconfig`、`fs/ext4/inode-test.c:ext4_decode_extra_time()`、`fs/ext4/mballoc-test.c`、`fs/ext4/extents-test.c`、`tools/testing/selftests/filesystems/Makefile` 等。
++
++## 3. Manager 汇总一致性
++
++Manager 汇总文档与子 agent 报告总体一致：
++
++- `knowledge/fs_learning_summary.md` 对 VFS、ext4、page cache/writeback、测试范围的概括与四份子报告一致。
++- `knowledge/read_write_path.md` 的 read/write/writeback/fsync 路径与 VFS、Ext4、Page Cache 报告中的分层关系一致。
++- `knowledge/development_workflow.md` 明确说明当前 Windows/PowerShell 与 sparse checkout 环境下不能声称 Linux 构建、KUnit 已通过，这与 Testing 报告一致。
++
++需要注意：部分汇总调用链为了学习目的省略了 `.read`/`.write` 老接口和若干错误路径，默认描述 ext4 普通文件 buffered path，并在旁边补充了 Direct I/O/DAX 分流；这属于简化，不构成阻塞问题。
++
++## 4. 中文注释 patch 检查
++
++`git diff -- fs/open.c fs/read_write.c fs/ext4/file.c mm/filemap.c` 显示仅新增 C 注释块：
++
++- `fs/open.c:do_dentry_open()`：说明 `inode->i_fop` 绑定到 `file->f_op`。
++- `fs/read_write.c:vfs_read()`：说明 VFS read 权限/范围检查后按 `file_operations` 分派。
++- `fs/read_write.c:vfs_write()`：说明 write 在 freeze 保护范围内分派。
++- `fs/ext4/file.c:ext4_file_write_iter()`：说明 Direct I/O 与 buffered write 分流。
++- `mm/filemap.c:generic_file_read_iter()`：说明通用 read 进入 `filemap_read()` 和 page cache。
++
++`git diff --numstat` 对这四个源码文件显示 21 行新增、0 行删除；新增内容均位于 `/* ... */` 注释块内，未修改条件判断、函数调用、结构体、宏、导出符号或控制流。结论：该 patch 只添加注释，不改变逻辑。
++
++`git diff --check` 未发现 whitespace error；当前 Windows 工作区输出了 “LF will be replaced by CRLF the next time Git touches it” 提示，属于本地换行符配置风险提示，不是本轮 patch 的语义问题。建议提交前由 Manager 保持内核源码使用 LF。
++
++## 5. 阻塞问题
++
++未发现需要阻塞提交的问题。
++
++建议但不阻塞：
++
++- 将 `records/run_log.md` 中“还计划加入中文学习注释”的表述更新为“已加入”，使记录状态与 T007/diff 完全一致。
++- 若后续要把中文注释提交到非个人学习分支，应重新评估内核上游风格；本轮学习分支内可以接受。
++
++## 6. 当前环境未实际运行的测试
++
++当前环境为 Windows/PowerShell，且 sparse checkout 仅包含 `Documentation/filesystems`、`fs`、`include/linux`、`mm`、`tools/testing/selftests/filesystems` 等路径。已确认 `scripts/checkpatch.pl`、`tools/testing/kunit/kunit.py`、`Documentation/dev-tools/kunit/` 不在当前工作树中。
++
++本轮实际执行的是轻量审查命令，包括 `git status --short`、`git diff --check`、源码 diff、目录枚举和 `rg` 检索。
++
++以下测试或验证没有实际运行，不能声明通过：
++
++- Linux 内核构建：未运行 `make O=build olddefconfig`、`make O=build fs/ext4/ W=1`。
++- sparse/编译静态检查：未运行 `make C=1` 或针对 ext4/mm/VFS 的编译检查。
++- checkpatch：未运行 `scripts/checkpatch.pl --strict --git HEAD`，当前 sparse checkout 中没有该脚本。
++- KUnit：未运行 `tools/testing/kunit/kunit.py run --kunitconfig=fs/ext4/.kunitconfig`，当前 sparse checkout 中没有 `tools/testing/kunit/kunit.py`。
++- selftests：未运行 `make -C tools/testing/selftests/filesystems run_tests`，该类测试需要 Linux 环境，部分还需要 mount namespace、loop 设备、root 或 capability。
++- xfstests/fstests/kvm-xfstests：未运行；这是外部测试套件，需要 Linux VM、独立 TEST_DEV/SCRATCH_DEV，并可能格式化测试设备。
++- QEMU/VM 启动、崩溃恢复测试、fsync/rename/truncate/quota/encryption/verity 等行为测试均未运行。
++- ftrace/bpftrace/tracepoint 运行时路径验证未运行。
++
++最终结论：pass
+diff --git a/Documentation/filesystems/agent-study/reports/testing_agent_report.md b/Documentation/filesystems/agent-study/reports/testing_agent_report.md
+new file mode 100644
+index 0000000..ed38a16
+--- /dev/null
++++ b/Documentation/filesystems/agent-study/reports/testing_agent_report.md
+@@ -0,0 +1,192 @@
++# Testing Agent 报告：文件系统测试与验证路线
++
++## 范围与阅读入口
++
++本报告面向后续 agent 的小范围文件系统 patch，尤其是中文学习注释 patch 的验证路线。已阅读的主要入口包括：
++
++- `fs/ext4/.kunitconfig`：ext4 KUnit 的最小配置，包含 `CONFIG_KUNIT=y`、`CONFIG_EXT4_FS=y`、`CONFIG_EXT4_KUNIT_TESTS=y`。
++- `fs/ext4/Kconfig`：`EXT4_KUNIT_TESTS` 依赖 `EXT4_FS && KUNIT`，默认跟随 `KUNIT_ALL_TESTS`，说明测试在启动时输出 TAP 格式日志。
++- `fs/ext4/Makefile`：`inode-test.o`、`mballoc-test.o`、`extents-test.o` 被合入 `ext4-test.o`，由 `CONFIG_EXT4_KUNIT_TESTS` 控制。
++- `tools/testing/selftests/filesystems/` 及其子目录 Makefile。
++- `Documentation/filesystems/` 中与 fstests/xfstests 有关的文档线索，主要见 `fscrypt.rst`、`fsverity.rst`、`iomap/porting.rst`。
++
++## 1. 本地能做的轻量检查
++
++这些检查适合在 patch 很小、风险低、主要修改注释或文档时先跑一轮：
++
++```sh
++git diff --check
++git diff --stat
++git diff -- fs/ext4/ Documentation/filesystems/
++rg -n "TODO|FIXME|XXX|中文|学习|注释" fs/ext4 Documentation/filesystems
++```
++
++建议的静态阅读重点：
++
++- 确认 diff 只改变预期文件和预期行，尤其中文注释 patch 不应改动条件判断、函数调用、结构体字段、宏值、Makefile/Kconfig。
++- 对 ext4 源码注释，重点看注释是否贴近局部代码语义，避免把高层推测写成确定结论。
++- 对文档 patch，检查标题层级、列表缩进和代码块是否符合现有 RST/Markdown 风格。
++
++如果在完整内核树中有 `scripts/checkpatch.pl`，建议跑：
++
++```sh
++scripts/checkpatch.pl --strict --no-tree --file <changed-file>
++# 或检查提交/补丁：
++scripts/checkpatch.pl --strict --git HEAD
++```
++
++当前工作树是裁剪树，未看到 `scripts/checkpatch.pl` 和 `Documentation/dev-tools/`，所以上述 checkpatch 和完整文档构建命令依赖完整源码树。
++
++如果需要语法/编译级别的轻量检查，可在完整构建环境中优先使用独立输出目录：
++
++```sh
++make O=build olddefconfig
++make O=build fs/ext4/ W=1
++make O=build C=1 fs/ext4/
++```
++
++其中 `C=1` 调用 Makefile 中的静态检查入口，默认 checker 是 sparse；`W=1` 打开更多编译警告。若只是改文档或注释，这属于增强验证，不是每次都必须。
++
++## 2. KUnit/ext4 相关测试入口
++
++ext4 的本地 KUnit 入口集中在 `fs/ext4/`：
++
++- `.kunitconfig` 打开 `CONFIG_KUNIT`、`CONFIG_EXT4_FS`、`CONFIG_EXT4_KUNIT_TESTS`。
++- `Kconfig` 中 `EXT4_KUNIT_TESTS` 说明这些测试面向内核开发者，不应进入生产配置。
++- `Makefile` 将三个测试源文件编成 `ext4-test.o`。
++
++当前看到的 ext4 KUnit suite：
++
++- `fs/ext4/inode-test.c`：suite 名为 `ext4_inode_test`，测试 `ext4_decode_extra_time()` 对 ext4 inode 额外时间字段的解码，测试数据来自 `Documentation/filesystems/ext4/inodes.rst` 的时间戳表。
++- `fs/ext4/mballoc-test.c`：suite 名为 `ext4_mballoc_test`，覆盖简单分配/释放、多块分配 buddy 生成、mark used/free、mark diskspace used，并有一个标记为 `KUNIT_SPEED_SLOW` 的成本估算用例。
++- `fs/ext4/extents-test.c`：suite 名为 `ext4_extents_test`，覆盖 extent split/convert、initialized/unwritten 转换、zeroout fallback，以及 extent status cache 同步检查。
++
++测试代码还使用了 `kunit/static_stub.h`。例如 `mballoc-test.c` stub 掉 block bitmap、group desc、mark context；`extents-test.c` stub 掉 dirty、zeroout、insert extent 等路径。`fs/ext4/ext4.h` 中 `EXPORT_SYMBOL_FOR_EXT4_TEST()` 只在 `CONFIG_EXT4_KUNIT_TESTS` 打开时把符号导出给 `ext4-test`，这说明这些测试入口不是普通运行时 ABI。
++
++推荐命令如下，前提是完整内核树包含 `tools/testing/kunit/kunit.py`：
++
++```sh
++tools/testing/kunit/kunit.py run --kunitconfig=fs/ext4/.kunitconfig
++```
++
++若只想定位单个 suite，先用本树对应版本的 `tools/testing/kunit/kunit.py run --help` 确认过滤参数；不同内核版本的过滤语法可能有差异，不能在当前裁剪树里实际确认。
++
++## 3. selftests 和 xfstests 的适用范围
++
++### selftests
++
++`tools/testing/selftests/filesystems/Makefile` 构建的主集合包括：
++
++- `devpts_pts`
++- `file_stressor`
++- `anon_inode_test`
++- `kernfs_test`
++- `fclog`
++- 扩展构建项 `dnotify_test`
++
++顶层 `tools/testing/selftests/Makefile` 中列入了多个文件系统子目标，例如 `filesystems`、`filesystems/binderfs`、`filesystems/epoll`、`filesystems/fat`、`filesystems/overlayfs`、`filesystems/statmount`、`filesystems/mount-notify`、`filesystems/fuse`、`filesystems/move_mount`、`filesystems/empty_mntns`、`filesystems/fsmount_ns`。这些测试适合验证 VFS syscall、mount API、namespace、特定伪文件系统或用户可见行为。
++
++常用命令：
++
++```sh
++make kselftest TARGETS=filesystems
++make -C tools/testing/selftests/filesystems run_tests
++make -C tools/testing/selftests/filesystems/fat run_tests
++make -C tools/testing/selftests/filesystems/overlayfs run_tests
++```
++
++注意事项：
++
++- 许多测试涉及 `mount()`、`unshare()`、`chroot()`、loop 设备或 `CAP_SYS_ADMIN`，更适合在 Linux VM 内以 root 或具备相应 capability 的用户运行。
++- `fat/run_fat_tests.sh` 会创建 vfat 镜像、调用 `mkfs.vfat`，并用 `sudo mount -o loop` 挂载，不能视为普通无权限单元测试。
++- 若直接在子目录运行，需确保内核 UAPI headers 已准备好；顶层 `kselftest` 目标会先跑 `headers`。
++- 当前树中存在 `filesystems/eventfd`、`filesystems/open_tree_ns`、`filesystems/xattr`、`filesystems/nsfs` 等子目录，但顶层 TARGETS 列表并未全部以 `filesystems/<name>` 形式列入；这是当前裁剪树/分支中需要后续确认的点。
++
++### xfstests/fstests
++
++xfstests 不在当前内核树内，是外部的文件系统回归测试套件。它适合验证真正的磁盘格式、挂载选项、崩溃恢复、fsync、rename、truncate、fiemap、xattr、quota、encryption、verity 等用户可见语义。
++
++本树文档中的线索：
++
++- `Documentation/filesystems/fscrypt.rst` 明确说 fscrypt 使用 xfstests 测试，并给出 `kvm-xfstests -c ext4,f2fs -g encrypt`、`kvm-xfstests -c ext4/encrypt,f2fs/encrypt -g auto` 等示例。
++- `Documentation/filesystems/fsverity.rst` 建议用 xfstests 测 fs-verity，例如 `kvm-xfstests -c ext4,f2fs,btrfs -g verity`。
++- `Documentation/filesystems/iomap/porting.rst` 建议构建 kernel 后，用 `fstests -g all` 在多种配置上建立回归基线。
++
++适用边界：
++
++- 注释-only patch 通常不需要跑完整 xfstests。
++- ext4 行为、I/O、分配、日志、挂载选项、磁盘格式相关 patch，应至少跑 ext4 的 quick/auto 子集。
++- 涉及 fscrypt/fsverity 的 patch，应跑对应 group，例如 encrypt 或 verity。
++- xfstests 需要独立 TEST_DEV 和 SCRATCH_DEV，可能会格式化设备；必须在虚拟机或专用测试盘上运行。
++
++## 4. QEMU/虚拟机测试建议
++
++建议把会格式化设备、需要 root/capability、可能影响宿主挂载状态的测试放到 VM：
++
++1. 构建待测内核，准备一个最小 rootfs。
++2. QEMU/KVM 启动时挂载只用于测试的 virtio-blk/virtio-scsi 磁盘，至少区分系统盘、TEST_DEV、SCRATCH_DEV。
++3. VM 内安装 `xfstests`、`e2fsprogs`、`util-linux`、`acl`、`attr`、`fio`、`fsverity-utils`、`keyutils` 等按需依赖。
++4. 先跑 `dmesg -w` 或保存 `dmesg`，测试后检查 WARN/OOPS/EXT4-fs error。
++5. 对 ext4 行为 patch，优先用 `kvm-xfstests` 简化 VM、磁盘和配置矩阵；没有该工具时，再手工配置 fstests。
++
++示例路线：
++
++```sh
++kvm-xfstests -c ext4 -g quick
++kvm-xfstests -c ext4 -g auto
++kvm-xfstests -c ext4/encrypt -g encrypt
++kvm-xfstests -c ext4 -g verity
++```
++
++手工 fstests 的思路是准备 `/etc/fstests/local.config`，设置 `FSTYP=ext4`、`TEST_DEV`、`TEST_DIR`、`SCRATCH_DEV`、`SCRATCH_MNT`，再运行类似：
++
++```sh
++./check -g quick
++./check -g auto
++```
++
++具体配置文件格式和 group 名称以所用 xfstests 版本为准。
++
++## 5. 中文注释 patch 不改变逻辑时的推荐验证命令
++
++后续如果只是给 ext4/VFS/page cache 等源码加少量中文学习注释，推荐从低成本到高成本分层验证：
++
++```sh
++git diff --check
++git diff --stat
++git diff --word-diff -- <changed-files>
++rg -n "TODO|FIXME|XXX|不确定|可能|应该" <changed-files>
++```
++
++如果完整源码树有 checkpatch：
++
++```sh
++scripts/checkpatch.pl --strict --no-tree --file <changed-files>
++```
++
++如果注释落在 `fs/ext4/` 关键路径，且本地有可用构建环境：
++
++```sh
++make O=build olddefconfig
++make O=build fs/ext4/ W=1
++tools/testing/kunit/kunit.py run --kunitconfig=fs/ext4/.kunitconfig
++```
++
++如果 patch 确认只改注释，不改变编译输入、宏、结构体、函数、文档索引，通常不需要跑 selftests 或 xfstests；但合入前可由 review agent 再看一遍 diff，确认没有误改代码行。
++
++如果 patch 虽然声称是注释，但触碰了 `Makefile`、`Kconfig`、测试代码、宏定义、trace/debug 输出或文档索引，应升级到对应构建或测试：
++
++```sh
++make kselftest TARGETS=filesystems
++make -C tools/testing/selftests/filesystems run_tests
++```
++
++涉及实际行为变更时，再进入 VM 跑 xfstests quick/auto 子集。
++
++## 6. 不确定点与不能编造的事项
++
++- 当前工作树是裁剪过的：根目录有 `fs/`、`mm/`、`include/`、`tools/`、`Documentation/filesystems/`，但未看到 `scripts/checkpatch.pl`、`tools/testing/kunit/kunit.py`、`Documentation/dev-tools/kunit/`。因此 KUnit/checkpatch 具体命令未在本地实际执行。
++- `fs/ext4/Kconfig` 引用了 `Documentation/dev-tools/kunit/`，但该目录在当前树缺失；这应理解为完整内核树中的文档入口，而不是当前本地已存在的文件。
++- 顶层 selftests TARGETS 与 `tools/testing/selftests/filesystems/` 下实际子目录不完全对应，例如 `eventfd`、`open_tree_ns`、`xattr` 在子目录中存在，但当前顶层列表没有全部列出为 `filesystems/<name>`；原因可能是裁剪树、分支状态或待整理项，不能擅自下结论。
++- 没有在当前环境运行 Linux 内核构建、KUnit、selftests 或 xfstests。当前宿主上下文是 Windows/PowerShell，文件系统 selftests 和 xfstests 应在 Linux 环境或 VM 中验证。
++- xfstests/kvm-xfstests 是外部项目，具体 group、配置名、跳过项和依赖会随版本变化；报告中的命令是测试路线，不等于已在本机验证通过。
+diff --git a/Documentation/filesystems/agent-study/reports/vfs_agent_report.md b/Documentation/filesystems/agent-study/reports/vfs_agent_report.md
+new file mode 100644
+index 0000000..b48f0b7
+--- /dev/null
++++ b/Documentation/filesystems/agent-study/reports/vfs_agent_report.md
+@@ -0,0 +1,335 @@
++# VFS Agent 报告：核心路径与核心对象关系
++
++本报告基于当前分支 `agent-fs-study-cn` 的源码阅读，重点文件为 `fs/open.c`、`fs/read_write.c`、`fs/namei.c`、`fs/file_table.c`、`include/linux/fs.h`，并为说明 VFS 与 ext4 的衔接补充阅读了 `fs/ext4/` 下的相关实现。
++
++## 1. VFS 在文件系统栈中的位置
++
++VFS（Virtual File System）位于系统调用/文件描述符层和具体文件系统实现之间。它向上承接 `open(2)`、`read(2)`、`write(2)` 等系统调用，向下通过统一的对象和操作表调用 ext4、xfs、tmpfs、procfs 等具体文件系统。它不是一种磁盘格式，而是一组统一的内核对象模型、路径解析逻辑、权限检查逻辑、页缓存/地址空间接口和操作分派机制。
++
++简化位置如下：
++
++```text
++用户态程序
++  -> 系统调用入口（open/read/write）
++  -> VFS：fd table、path/namei、dcache、inode、file、super_block、权限/LSM/fsnotify
++  -> 具体文件系统：ext4_file_operations、ext4_dir_inode_operations、ext4_sops 等
++  -> 页缓存/块层/设备驱动
++  -> 存储介质
++```
++
++VFS 的核心价值是把“路径名解析、文件描述符、打开文件实例、目录项缓存、inode 元数据、挂载实例、权限检查”等通用部分抽象出来，具体文件系统只需要填充对应的操作表和私有数据。
++
++## 2. open/read/write 的关键调用链
++
++### open 路径
++
++主要源码：`fs/open.c`、`fs/namei.c`、`fs/file_table.c`、`include/linux/file.h`、`fs/file.c`。
++
++关键调用链：
++
++```text
++fs/open.c:SYSCALL_DEFINE3(open)
++fs/open.c:SYSCALL_DEFINE4(openat)
++fs/open.c:SYSCALL_DEFINE4(openat2)
++  -> fs/open.c:do_sys_open()
++  -> fs/open.c:do_sys_openat2()
++       build_open_flags()
++       CLASS(filename, name)(filename)
++       FD_ADD(how->flags, do_file_open(dfd, name, &op))
++  -> fs/namei.c:do_file_open()
++  -> fs/namei.c:path_openat()
++       fs/file_table.c:alloc_empty_file()
++       path_init()
++       link_path_walk()
++       open_last_lookups()
++       do_open()
++  -> fs/namei.c:open_last_lookups()
++       lookup_fast_for_open()
++       lookup_open()
++       可能调用 dir_inode->i_op->atomic_open()
++       否则可能调用 dir_inode->i_op->lookup()
++       O_CREAT 时可能调用 dir_inode->i_op->create()
++  -> fs/namei.c:do_open()
++       complete_walk()
++       may_open()
++       fs/open.c:vfs_open()
++       security_file_post_open()
++       O_TRUNC 时 handle_truncate()
++  -> fs/open.c:vfs_open()
++  -> fs/open.c:do_dentry_open()
++       file->f_inode = dentry->d_inode
++       file->f_mapping = inode->i_mapping
++       file->f_op = fops_get(inode->i_fop)
++       调用 file->f_op->open(inode, file)（如果存在）
++       设置 FMODE_OPENED / FMODE_CAN_READ / FMODE_CAN_WRITE 等
++  -> include/linux/file.h:FD_ADD()
++  -> fs/file.c:fd_install()
++       把 struct file 安装进当前进程 fd table
++```
++
++`fs/file_table.c:alloc_empty_file()` 只分配并初始化一个“空的” `struct file`，其中 `init_file()` 设置 `f_cred`、`f_flags`、`f_mode`、`f_pos`、引用计数等，但此时还没有绑定具体路径和 inode。真正把 `file` 绑定到 `dentry/inode/file_operations` 的动作发生在 `fs/open.c:do_dentry_open()`。
++
++`fs/namei.c` 是 open 路径中最复杂的部分：`link_path_walk()` 负责逐级解析路径组件；`open_last_lookups()` 处理最后一个路径组件；`lookup_open()` 在需要时调用具体文件系统的 `inode_operations`，例如 `lookup/create/atomic_open`；`do_open()` 完成权限检查和真正打开。
++
++### read 路径
++
++主要源码：`fs/read_write.c`、`include/linux/fs.h`。
++
++关键调用链：
++
++```text
++fs/read_write.c:SYSCALL_DEFINE3(read)
++  -> fs/read_write.c:ksys_read()
++       CLASS(fd_pos, f)(fd)
++       file_ppos()
++       vfs_read(fd_file(f), buf, count, ppos)
++  -> fs/read_write.c:vfs_read()
++       检查 FMODE_READ / FMODE_CAN_READ
++       access_ok()
++       rw_verify_area(READ, file, pos, count)
++       如果 file->f_op->read 存在，调用 ->read()
++       否则如果 file->f_op->read_iter 存在，调用 new_sync_read()
++  -> fs/read_write.c:new_sync_read()
++       init_sync_kiocb()
++       iov_iter_ubuf()
++       file->f_op->read_iter(&kiocb, &iter)
++```
++
++对 ext4 普通文件而言，`file->f_op` 来自 `fs/ext4/file.c:ext4_file_operations`，读接口是 `.read_iter = ext4_file_read_iter`。`ext4_file_read_iter()` 根据 DAX、Direct I/O、普通 buffered I/O 分支进一步走 `dax_iomap_rw()`、`iomap_dio_rw()` 或 `generic_file_read_iter()`。
++
++### write 路径
++
++主要源码：`fs/read_write.c`、`include/linux/fs.h`。
++
++关键调用链：
++
++```text
++fs/read_write.c:SYSCALL_DEFINE3(write)
++  -> fs/read_write.c:ksys_write()
++       CLASS(fd_pos, f)(fd)
++       file_ppos()
++       vfs_write(fd_file(f), buf, count, ppos)
++  -> fs/read_write.c:vfs_write()
++       检查 FMODE_WRITE / FMODE_CAN_WRITE
++       access_ok()
++       rw_verify_area(WRITE, file, pos, count)
++       file_start_write(file)
++       如果 file->f_op->write 存在，调用 ->write()
++       否则如果 file->f_op->write_iter 存在，调用 new_sync_write()
++       file_end_write(file)
++  -> fs/read_write.c:new_sync_write()
++       init_sync_kiocb()
++       iov_iter_ubuf()
++       file->f_op->write_iter(&kiocb, &iter)
++```
++
++`include/linux/fs.h:file_start_write()` 对普通文件调用 `sb_start_write(file_inode(file)->i_sb)`，用于与 filesystem freeze 机制配合；`file_end_write()` 对应 `sb_end_write()`。
++
++对 ext4 普通文件而言，写接口是 `fs/ext4/file.c:ext4_file_operations` 中的 `.write_iter = ext4_file_write_iter`。`ext4_file_write_iter()` 会根据 DAX、Direct I/O、atomic write、buffered write 等条件分派到 ext4 自己的写路径，并可能进入 iomap、页缓存、日志和块分配相关逻辑。
++
++## 3. 核心对象关系
++
++### struct super_block
++
++`struct super_block` 表示一个已挂载文件系统实例。当前源码树中它的定义在 `include/linux/fs/super_types.h`，由 `include/linux/fs.h -> include/linux/fs/super.h -> include/linux/fs/super_types.h` 引入。
++
++关键字段包括：
++
++- `s_type`：指向 `struct file_system_type`，表示文件系统类型。
++- `s_op`：指向 `struct super_operations`，提供 inode 分配、写回、卸载、statfs、freeze/thaw 等超级块级操作。
++- `s_root`：该文件系统根 dentry。
++- `s_bdev` / `s_bdev_file`：块设备相关信息。
++- `s_fs_info`：具体文件系统私有信息，ext4 中通常通过 `EXT4_SB(sb)` 访问。
++
++### struct inode
++
++`include/linux/fs.h:struct inode` 表示文件系统对象的元数据和身份，不等同于一次打开的文件。关键字段包括：
++
++- `i_op`：`const struct inode_operations *`，用于 lookup、create、mkdir、rename、permission、getattr、setattr 等命名空间和元数据操作。
++- `i_fop`：`const struct file_operations *`，该 inode 被打开成 `struct file` 时默认使用的文件操作表。
++- `i_sb`：所属 `super_block`。
++- `i_mapping` / `i_data`：地址空间和页缓存相关对象。
++- `i_private`：具体文件系统或驱动私有数据。
++
++一个 inode 可以对应多个 dentry，例如硬链接或别名场景。
++
++### struct dentry
++
++`include/linux/dcache.h:struct dentry` 表示目录项缓存中的“名字到 inode”的关系。关键字段包括：
++
++- `d_parent`、`d_name`：父目录项和当前名字。
++- `d_inode`：该名字对应的 inode；为 `NULL` 时是 negative dentry。
++- `d_sb`：所属 dentry 树的 super_block。
++- `d_op`：`struct dentry_operations`，用于 revalidate、hash、compare、delete 等 dcache 行为。
++
++路径解析时，VFS 先尽量通过 dcache 快速找到 dentry；miss 或需要 revalidate 时再调用具体文件系统的 `inode_operations.lookup` 等方法。
++
++### struct file
++
++`include/linux/fs.h:struct file` 表示一次打开后的文件实例，和用户态 fd 对应但不是 fd 本身。关键字段包括：
++
++- `f_path`：`struct path`，包含 `vfsmount` 和 `dentry`。
++- `f_inode`：缓存的 inode，`file_inode(file)` 返回它。
++- `f_op`：打开后使用的 `file_operations`。
++- `f_mapping`：通常来自 `inode->i_mapping`。
++- `f_pos`：当前文件偏移。
++- `f_flags` / `f_mode`：打开标志和 VFS 模式位。
++- `private_data`：具体文件系统或驱动可用的 per-open 私有数据。
++
++`fs/open.c:do_dentry_open()` 会从 `file->f_path.dentry->d_inode` 得到 inode，再把 `inode->i_fop` 复制/引用到 `file->f_op`。因此读写路径只需要看 `file->f_op`，不必重新根据文件系统类型判断。
++
++### file_operations 与 inode_operations
++
++`include/linux/fs.h:struct file_operations` 面向“已经打开的文件实例”，典型成员有：
++
++- `open`
++- `read` / `read_iter`
++- `write` / `write_iter`
++- `llseek`
++- `mmap`
++- `fsync`
++- `release`
++- `iterate_shared`
++
++`include/linux/fs.h:struct inode_operations` 面向“文件系统命名空间和 inode 元数据”，典型成员有：
++
++- `lookup`
++- `create`
++- `link` / `unlink`
++- `mkdir` / `rmdir`
++- `rename`
++- `permission`
++- `getattr` / `setattr`
++- `atomic_open`
++- `tmpfile`
++
++粗略理解：`inode_operations` 解决“这个名字是什么、能否创建/删除/改属性”；`file_operations` 解决“已经打开后如何读写、seek、mmap、fsync、关闭”。
++
++对象关系可简化为：
++
++```text
++task fd table
++  -> fd number
++  -> struct file
++       -> f_path.mnt -> struct vfsmount -> mnt_sb -> struct super_block
++       -> f_path.dentry -> struct dentry -> d_inode -> struct inode
++       -> f_inode ------------------------------^
++       -> f_op：来自 inode->i_fop
++
++struct inode
++  -> i_sb：所属 super_block
++  -> i_op：命名空间/元数据操作
++  -> i_fop：默认 file_operations
++  -> i_mapping：页缓存/address_space
++
++struct super_block
++  -> s_root：根 dentry
++  -> s_op：super_operations
++  -> s_fs_info：具体文件系统私有数据
++```
++
++## 4. VFS 与 ext4 的衔接点
++
++### 挂载和 super_block
++
++`fs/ext4/super.c:ext4_sops` 填充 `struct super_operations`，包括：
++
++- `.alloc_inode = ext4_alloc_inode`
++- `.write_inode = ext4_write_inode`
++- `.evict_inode = ext4_evict_inode`
++- `.put_super = ext4_put_super`
++- `.sync_fs = ext4_sync_fs`
++- `.statfs = ext4_statfs`
++
++`fs/ext4/super.c:ext4_fill_super()` 中将 VFS super_block 接到 ext4：
++
++```text
++sb->s_op = &ext4_sops
++sb->s_export_op = &ext4_export_ops
++sb->s_xattr = ext4_xattr_handlers
++root = ext4_iget(sb, EXT4_ROOT_INO, EXT4_IGET_SPECIAL)
++sb->s_root = d_make_root(root)
++```
++
++这一步完成了“这个挂载实例由 ext4 管理”的绑定。
++
++### inode 装配 i_op / i_fop
++
++`fs/ext4/inode.c:__ext4_iget()` 从磁盘读取 inode 后，根据 `i_mode` 设置 VFS inode 的操作表：
++
++- 普通文件：`inode->i_op = &ext4_file_inode_operations`，`inode->i_fop = &ext4_file_operations`，并调用 `ext4_set_aops(inode)`。
++- 目录：`inode->i_op = &ext4_dir_inode_operations`，`inode->i_fop = &ext4_dir_operations`。
++- 符号链接：设置到 ext4 的 symlink inode operations。
++- 特殊文件：设置到 `ext4_special_inode_operations`。
++
++这一步是 VFS 后续 open/read/write 能分派到 ext4 的关键。
++
++### 目录 lookup/create
++
++`fs/ext4/namei.c:ext4_dir_inode_operations` 填充目录 inode 的命名空间操作：
++
++```text
++.create = ext4_create
++.lookup = ext4_lookup
++.link   = ext4_link
++.unlink = ext4_unlink
++.mkdir  = ext4_mkdir
++.rename = ext4_rename2
++.tmpfile = ext4_tmpfile
++```
++
++`fs/namei.c:lookup_open()` 在 O_CREAT 或 lookup miss 等场景会调用这些方法。对 ext4：
++
++- `fs/ext4/namei.c:ext4_lookup()` 读取 ext4 目录项，找到 inode 号后调用 `ext4_iget()`，最后用 `d_splice_alias(inode, dentry)` 把 inode 接入 dentry。
++- `fs/ext4/namei.c:ext4_create()` 调用 `ext4_new_inode_start_handle()` 分配新 inode，设置 `inode->i_op` 和 `inode->i_fop`，再通过 `ext4_add_nondir()` 添加目录项。
++- `fs/ext4/namei.c:ext4_add_nondir()` 成功后调用 `d_instantiate_new(dentry, inode)`，把原本 negative 的 dentry 变为 positive dentry。
++
++当前源码树里的 `ext4_dir_inode_operations` 没有设置 `.atomic_open`，所以普通 ext4 创建/查找路径主要走 `lookup/create`，不是 `atomic_open`。
++
++### 打开和读写
++
++`fs/open.c:do_dentry_open()` 从 ext4 inode 上取得 `inode->i_fop`，因此普通 ext4 文件打开后：
++
++```text
++file->f_op = &ext4_file_operations
++```
++
++`fs/ext4/file.c:ext4_file_operations` 中关键成员包括：
++
++- `.read_iter = ext4_file_read_iter`
++- `.write_iter = ext4_file_write_iter`
++- `.open = ext4_file_open`
++- `.release = ext4_release_file`
++- `.fsync = ext4_sync_file`
++- `.llseek = ext4_llseek`
++- `.mmap_prepare = ext4_file_mmap_prepare`
++
++因此 VFS 的 `vfs_read()`/`vfs_write()` 最终通过 `file->f_op->read_iter/write_iter` 进入 ext4 文件读写实现。
++
++## 5. 学习难点和后续建议
++
++学习难点：
++
++- `fs/namei.c` 分支很多：RCU walk/ref walk、符号链接、挂载点、`O_CREAT`、`O_EXCL`、`O_TRUNC`、`O_PATH`、`O_TMPFILE` 都交织在路径解析里。
++- `struct file` 和 fd 不是一回事：fd 是进程 fd table 的索引，`struct file` 是打开文件对象，二者通过 `fd_install()` 连接。
++- `dentry` 和 `inode` 的关系容易混淆：dentry 是名字缓存，可以为 negative；inode 是文件对象元数据；一个 inode 可有多个 dentry 别名。
++- `file_operations` 和 `inode_operations` 的边界需要反复结合调用点理解：open 的最后一跳同时涉及两者，路径解析阶段偏 `inode_operations`，打开后的读写偏 `file_operations`。
++- ext4 读写并不止 VFS 到 ext4 一跳，后面还有 page cache、iomap、DAX、Direct I/O、jbd2 日志、块分配、writeback 等多层路径。
++- 锁和生命周期复杂：`i_rwsem`、RCU path walk、引用计数、`fput()` 延迟释放、freeze protection 等都影响真实行为。
++
++后续建议：
++
++- 先固定一个最小场景跟踪：`open("a", O_RDONLY)`、`read(fd)`、`write(fd)`，再逐步加入 `O_CREAT/O_TRUNC/O_DIRECT/O_PATH`。
++- 配合 `Documentation/filesystems/path-lookup.rst`、`Documentation/filesystems/vfs.rst`、`Documentation/filesystems/locking.rst` 阅读 `fs/namei.c`。
++- 用 ftrace/bpftrace 或内核 tracepoints 观察 `do_sys_openat2`、`path_openat`、`vfs_open`、`vfs_read`、`vfs_write`、`ext4_file_read_iter`、`ext4_file_write_iter` 的真实运行顺序。
++- 画对象生命周期图：fd table 引用 `file`，`file` 引用 `path`，`path` 引用 `vfsmount+dentry`，`dentry` 引用 `inode`，`inode` 引用 `super_block`。
++- 对 ext4 建议继续追 `ext4_file_write_iter()` 后面的 buffered write、direct I/O、journal transaction 和 writeback 路径。
++
++## 6. 不确定点
++
++- 本报告只梳理 open/read/write 主干，没有完整覆盖 `readv/writev/pread/pwrite/io_uring/aio/splice/mmap` 等变体路径。
++- 没有完整展开 `openat2` 的所有 `RESOLVE_*` 语义和 scoped lookup 安全细节，只确认它们进入 `do_sys_openat2()` 和 namei lookup flags 相关逻辑。
++- 对 RCU path walk、rename 并发、mount namespace 穿越、automount、网络文件系统 revalidate 等并发细节仍需继续阅读，不能仅凭本报告下结论。
++- ext4 写路径后半段涉及 jbd2、delayed allocation、iomap、page cache、writeback 和块层，本报告只说明 VFS 到 ext4 的衔接点，没有声称完整解释数据落盘顺序。
++- 当前源码树中 `struct super_block` 不直接定义在 `include/linux/fs.h`，而是在 `include/linux/fs/super_types.h`，由 `include/linux/fs.h` 间接包含；如果其他内核版本布局不同，需要按对应版本源码确认。
++- 不同具体文件系统是否实现 `.atomic_open`、`.read`、`.read_iter`、`.write`、`.write_iter` 差异较大，不能把 ext4 的实现方式直接推广到所有文件系统。
+diff --git a/fs/ext4/file.c b/fs/ext4/file.c
+index eb1a323..f07bf23 100644
+--- a/fs/ext4/file.c
++++ b/fs/ext4/file.c
+@@ -729,6 +729,10 @@ ext4_file_write_iter(struct kiocb *iocb, struct iov_iter *from)
+ 			return ret;
+ 	}
+ 
++	/*
++	 * 学习注释：ext4 的写入口在这里完成关键分流；Direct I/O 走
++	 * iomap_dio_rw()，普通 buffered write 进入 page cache 与 aops。
++	 */
+ 	if (iocb->ki_flags & IOCB_DIRECT)
+ 		return ext4_dio_write_iter(iocb, from);
+ 	else
+diff --git a/fs/open.c b/fs/open.c
+index 681d405..51c3dfd 100644
+--- a/fs/open.c
++++ b/fs/open.c
+@@ -915,6 +915,11 @@ static int do_dentry_open(struct file *f,
+ 	if (S_ISREG(inode->i_mode) || S_ISDIR(inode->i_mode))
+ 		f->f_mode |= FMODE_ATOMIC_POS;
+ 
++	/*
++	 * 学习注释：这里把 inode 提供的 file_operations 绑定到本次
++	 * 打开的 struct file，后续 read/write/fsync 会通过 f->f_op
++	 * 分派到 ext4、tmpfs 等具体文件系统。
++	 */
+ 	f->f_op = fops_get(inode->i_fop);
+ 	if (WARN_ON(!f->f_op)) {
+ 		error = -ENODEV;
+diff --git a/fs/read_write.c b/fs/read_write.c
+index 50bff7e..802514c 100644
+--- a/fs/read_write.c
++++ b/fs/read_write.c
+@@ -568,6 +568,10 @@ ssize_t vfs_read(struct file *file, char __user *buf, size_t count, loff_t *pos)
+ 	if (count > MAX_RW_COUNT)
+ 		count =  MAX_RW_COUNT;
+ 
++	/*
++	 * 学习注释：VFS 在完成权限和范围检查后，只负责通过 file_operations
++	 * 分派；ext4 普通文件通常走 read_iter -> ext4_file_read_iter()。
++	 */
+ 	if (file->f_op->read)
+ 		ret = file->f_op->read(file, buf, count, pos);
+ 	else if (file->f_op->read_iter)
+@@ -682,6 +686,10 @@ ssize_t vfs_write(struct file *file, const char __user *buf, size_t count, loff_
+ 	if (count > MAX_RW_COUNT)
+ 		count =  MAX_RW_COUNT;
+ 	file_start_write(file);
++	/*
++	 * 学习注释：write 路径在 freeze 保护范围内分派到具体文件系统；
++	 * ext4 普通文件通常走 write_iter -> ext4_file_write_iter()。
++	 */
+ 	if (file->f_op->write)
+ 		ret = file->f_op->write(file, buf, count, pos);
+ 	else if (file->f_op->write_iter)
+diff --git a/mm/filemap.c b/mm/filemap.c
+index 4e63664..8bd3ab8 100644
+--- a/mm/filemap.c
++++ b/mm/filemap.c
+@@ -2995,6 +2995,10 @@ generic_file_read_iter(struct kiocb *iocb, struct iov_iter *iter)
+ 			return retval;
+ 	}
+ 
++	/*
++	 * 学习注释：通用 read_iter 最终进入 filemap_read()，由 page cache
++	 * 处理 folio 查找、预读和拷贝，缺页时再通过 mapping->a_ops 调到文件系统。
++	 */
+ 	return filemap_read(iocb, iter, retval);
+ }
+ EXPORT_SYMBOL(generic_file_read_iter);
+-- 
+2.54.0.windows.1
+
