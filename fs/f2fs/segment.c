@@ -3817,6 +3817,11 @@ int f2fs_allocate_data_block(struct f2fs_sb_info *sbi, struct folio *folio,
 	}
 
 	if (from_gc) {
+		/*
+		 * 学习注释：ATGC 使用专门 curseg 迁移数据。迁移前先从旧块
+		 * 所在 segment 读取类型和 mtime，后面用这些信息尽量保持冷热
+		 * 分类和 age 语义。
+		 */
 		f2fs_bug_on(sbi, GET_SEGNO(sbi, old_blkaddr) == NULL_SEGNO);
 		se = get_seg_entry(sbi, GET_SEGNO(sbi, old_blkaddr));
 		sanity_check_seg_type(sbi, se->type);
@@ -3828,8 +3833,17 @@ int f2fs_allocate_data_block(struct f2fs_sb_info *sbi, struct folio *folio,
 
 	f2fs_wait_discard_bio(sbi, *new_blkaddr);
 
+	/*
+	 * 学习注释：summary 必须在 curseg 的同一 offset 写入。
+	 * 将来 GC 读取 SSA 时，会用这个 summary 反推出 block owner，
+	 * 再去 node/NAT 中验证该块是否仍有效。
+	 */
 	sum_entries(curseg->sum_blk)[curseg->next_blkoff] = *sum;
 	if (curseg->alloc_type == SSR) {
+		/*
+		 * 学习注释：SSR 不按 next_blkoff 顺序简单加一，而是在 dirty
+		 * segment 的 valid map 中寻找下一个空洞，复用旧 segment 空间。
+		 */
 		curseg->next_blkoff = f2fs_find_next_ssr_block(sbi, curseg);
 	} else {
 		curseg->next_blkoff++;
@@ -3851,6 +3865,11 @@ int f2fs_allocate_data_block(struct f2fs_sb_info *sbi, struct folio *folio,
 	/*
 	 * SIT information should be updated before segment allocation,
 	 * since SSR needs latest valid block information.
+	 */
+	/*
+	 * 学习注释：先增加新块有效计数，再减少旧块有效计数。
+	 * 这能让同一事务中的空间状态保持可解释，尤其是 SSR/GC 依赖
+	 * 最新 SIT 判断 segment 是否还有有效块。
 	 */
 	update_sit_entry(sbi, *new_blkaddr, 1);
 	update_sit_entry(sbi, old_blkaddr, -1);
@@ -3892,6 +3911,11 @@ skip_new_segment:
 	 * segment dirty status should be updated after segment allocation,
 	 * so we just need to update status only one time after previous
 	 * segment being closed.
+	 */
+	/*
+	 * 学习注释：新旧块的 SIT 已经更新，最后再刷新 dirty/prefree/free
+	 * 列表状态。这样 GC 看到的 victim 候选和 active log 切换后的状态
+	 * 是同一套结果。
 	 */
 	locate_dirty_segment(sbi, GET_SEGNO(sbi, old_blkaddr));
 	locate_dirty_segment(sbi, GET_SEGNO(sbi, *new_blkaddr));

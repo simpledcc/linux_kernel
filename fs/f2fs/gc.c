@@ -1808,6 +1808,11 @@ static int do_garbage_collect(struct f2fs_sb_info *sbi,
 		f2fs_ra_meta_pages(sbi, GET_SUM_BLOCK(sbi, segno),
 					sum_blk_cnt, META_SSA, true);
 
+	/*
+	 * 学习注释：先 pin 住整段 GC 窗口涉及的 summary folio。
+	 * 后面逐 segment 迁移时就能稳定读取 SSA，不会一边迁移一边丢失
+	 * block owner 信息。
+	 */
 	/* reference all summary page */
 	while (segno < end_segno) {
 		struct folio *sum_folio = f2fs_get_sum_folio(sbi, segno);
@@ -1845,6 +1850,11 @@ static int do_garbage_collect(struct f2fs_sb_info *sbi,
 			block_end_segno = end_segno;
 
 		if (is_cursec(sbi, GET_SEC_FROM_SEG(sbi, segno))) {
+			/*
+			 * 学习注释：current section 正在被 active log 写入，
+			 * 绝不能被 GC 当 victim。命中这里说明 victim 选择或状态
+			 * 维护已经不一致。
+			 */
 			f2fs_err(sbi, "%s: segment %u is used by log",
 							__func__, segno);
 			f2fs_bug_on(sbi, 1);
@@ -1973,6 +1983,10 @@ gc_more:
 
 	/* Let's run FG_GC, if we don't have enough space. */
 	if (has_not_enough_free_secs(sbi, 0, 0)) {
+		/*
+		 * 学习注释：空间不足时把 GC 升级为前台 GC。前台 GC 是写路径
+		 * 的救急动作，会更积极迁移有效块来腾出 section。
+		 */
 		gc_type = FG_GC;
 		gc_control->one_time = false;
 
@@ -2012,6 +2026,11 @@ retry:
 		goto stop;
 	}
 
+	/*
+	 * 学习注释：victim 选定后才进入真实迁移。do_garbage_collect()
+	 * 返回的是释放的 segment 数；释放不一定等于可立即复用，可能还要
+	 * 等 checkpoint 把 prefree 推进为 free。
+	 */
 	seg_freed = do_garbage_collect(sbi, segno, &gc_list, gc_type,
 				gc_control->should_migrate_blocks,
 				gc_control->one_time);
@@ -2042,6 +2061,10 @@ retry:
 		round++;
 		if (skipped_round > MAX_SKIP_GC_COUNT &&
 				skipped_round * 2 >= round) {
+			/*
+			 * 学习注释：前台 GC 连续遇到锁竞争时，继续硬迁移收益很低。
+			 * 这里转而 checkpoint，尝试先回收 prefree 或稳定元数据。
+			 */
 			stat_inc_cp_call_count(sbi, TOTAL_CALL);
 			ret = f2fs_write_checkpoint(sbi, &cpc);
 			goto stop;

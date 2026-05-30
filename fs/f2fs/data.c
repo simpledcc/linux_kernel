@@ -1650,6 +1650,10 @@ int f2fs_map_blocks(struct inode *inode, struct f2fs_map_blocks *map, int flag)
 		struct extent_info ei;
 
 		/*
+		 * 学习注释：非创建路径命中 extent cache 后，通常不用再读 node。
+		 * 只有还想继续合并后续块时，才从当前命中区间尾部继续 map_more。
+		 */
+		/*
 		 * 1. If map->m_multidev_dio is true, map->m_pblk cannot be
 		 * waitted by f2fs_wait_on_block_writeback_range() and are not
 		 * mergeable.
@@ -1686,6 +1690,11 @@ next_dnode:
 	if (map->m_may_create) {
 		if (f2fs_lfs_mode(sbi))
 			f2fs_balance_fs(sbi, true);
+		/*
+		 * 学习注释：创建/预分配块会修改 node 地址槽和空间管理状态，
+		 * 因此必须拿 map lock，把并发 DIO、truncate、checkpoint/GC
+		 * 相关路径隔开。
+		 */
 		f2fs_map_lock(sbi, &lc, flag);
 	}
 
@@ -1723,6 +1732,10 @@ next_block:
 	if (map->m_may_create && (is_hole ||
 		(flag == F2FS_GET_BLOCK_DIO && f2fs_lfs_mode(sbi) &&
 		!f2fs_is_pinned_file(inode) && map->m_last_pblk != blkaddr))) {
+		/*
+		 * 学习注释：需要创建映射时，空洞会被分配新块；LFS 模式下
+		 * DIO 覆盖写也倾向 OPU，避免直接改写旧块并破坏日志式语义。
+		 */
 		if (unlikely(f2fs_cp_error(sbi))) {
 			err = -EIO;
 			goto sync_out;
@@ -1730,6 +1743,10 @@ next_block:
 
 		switch (flag) {
 		case F2FS_GET_BLOCK_PRE_AIO:
+			/*
+			 * 学习注释：异步预分配先统计同一 dnode 内连续空洞，
+			 * 后面用 f2fs_reserve_new_blocks() 批量保留 NEW_ADDR。
+			 */
 			if (blkaddr == NULL_ADDR) {
 				prealloc++;
 				last_ofs_in_node = dn.ofs_in_node;
@@ -1737,6 +1754,11 @@ next_block:
 			break;
 		case F2FS_GET_BLOCK_PRE_DIO:
 		case F2FS_GET_BLOCK_DIO:
+			/*
+			 * 学习注释：DIO 需要马上得到真实物理块，所以这里直接
+			 * 分配 data block，并把 inode 标记为 append write，供
+			 * fsync/recovery 路径判断是否需要写 fsync node。
+			 */
 			err = __allocate_data_block(&dn, map->m_seg_type);
 			if (err)
 				goto sync_out;
@@ -1754,6 +1776,11 @@ next_block:
 		if (is_hole)
 			map->m_flags |= F2FS_MAP_NEW;
 	} else if (is_hole) {
+		/*
+		 * 学习注释：不允许创建时遇到 hole，不同调用者语义不同：
+		 * bmap 返回 0，fiemap 记录空洞边界，DIO 读可以不映射，
+		 * 普通读取/预读则结束本段映射。
+		 */
 		if (f2fs_compressed_file(inode) &&
 		    f2fs_sanity_check_cluster(&dn)) {
 			err = -EFSCORRUPTED;
@@ -1826,6 +1853,11 @@ skip:
 	if (flag == F2FS_GET_BLOCK_PRE_AIO &&
 			(pgofs == end || dn.ofs_in_node == end_offset)) {
 
+		/*
+		 * 学习注释：批量预留只在一个 dnode 的地址槽范围内完成。
+		 * 如果中间出现非连续空洞或空间不足，直接报错，避免留下
+		 * 调用者误以为连续可写的部分预留结果。
+		 */
 		dn.ofs_in_node = ofs_in_node;
 		err = f2fs_reserve_new_blocks(&dn, prealloc);
 		if (err)
@@ -1865,6 +1897,11 @@ skip:
 sync_out:
 
 	if (flag == F2FS_GET_BLOCK_DIO && map->m_flags & F2FS_MAP_MAPPED) {
+		/*
+		 * 学习注释：DIO 返回物理块前要等待同范围旧写回完成。
+		 * 这样可以避免新 DIO 和 page cache/writeback 对同一物理块
+		 * 产生顺序不确定的并发访问。
+		 */
 		/*
 		 * for hardware encryption, but to avoid potential issue
 		 * in future
@@ -2984,6 +3021,10 @@ int f2fs_do_write_data_page(struct f2fs_io_info *fio)
 	if (need_inplace_update(fio) &&
 	    f2fs_lookup_read_extent_cache_block(inode, folio->index,
 						&fio->old_blkaddr)) {
+		/*
+		 * 学习注释：IPU 且 extent cache 已给出旧物理块时，可以跳过
+		 * dnode 查询，直接沿旧块写入；但仍必须校验块地址合法性。
+		 */
 		if (!f2fs_is_valid_blkaddr(fio->sbi, fio->old_blkaddr,
 						DATA_GENERIC_ENHANCE))
 			return -EFSCORRUPTED;
@@ -3009,6 +3050,10 @@ int f2fs_do_write_data_page(struct f2fs_io_info *fio)
 
 	/* This page is already truncated */
 	if (fio->old_blkaddr == NULL_ADDR) {
+		/*
+		 * 学习注释：writeback 过程中页可能已经被 truncate 掉。
+		 * 旧地址为空时不能再提交 BIO，只清掉页状态并退出。
+		 */
 		folio_clear_uptodate(folio);
 		folio_clear_f2fs_gcing(folio);
 		goto out_writepage;
@@ -3053,6 +3098,10 @@ got_it:
 	}
 
 	if (fio->need_lock == LOCK_RETRY) {
+		/*
+		 * 学习注释：第一次为了避免页锁和 f2fs_lock_op 死锁可能没有
+		 * 拿到操作锁；走 OPU 前再尝试一次，失败就让上层重试。
+		 */
 		if (!f2fs_trylock_op(fio->sbi, &lc)) {
 			err = -EAGAIN;
 			goto out_writepage;
@@ -3064,6 +3113,10 @@ got_it:
 	if (err)
 		goto out_writepage;
 
+	/*
+	 * 学习注释：summary 需要记录 node version。GC 之后如果旧 summary
+	 * 指向的 version 不匹配，就能识别出该物理块不再属于当前 dnode。
+	 */
 	fio->version = ni.version;
 
 	err = f2fs_encrypt_one_page(fio);

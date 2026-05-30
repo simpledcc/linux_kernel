@@ -399,11 +399,20 @@ static int f2fs_create(struct mnt_idmap *idmap, struct inode *dir,
 	ino = inode->i_ino;
 
 	f2fs_lock_op(sbi, &lc);
+	/*
+	 * 学习注释：目录项插入和新 inode 元数据初始化要放在同一个
+	 * operation lock 窗口中。这样如果中途失败，out 路径可以同时
+	 * 回滚 nid、新 inode 和目录项相关状态。
+	 */
 	err = f2fs_add_link(dentry, inode);
 	if (err)
 		goto out;
 	f2fs_unlock_op(sbi, &lc);
 
+	/*
+	 * 学习注释：只有目录项成功写入后才确认 nid 分配完成。
+	 * 如果提前 done，失败路径就无法把这个 nid 放回 free nid 管理。
+	 */
 	f2fs_alloc_nid_done(sbi, ino);
 
 	d_instantiate_new(dentry, inode);
@@ -513,6 +522,10 @@ static struct dentry *f2fs_lookup(struct inode *dir, struct dentry *dentry,
 	f2fs_free_filename(&fname);
 
 	if (!de) {
+		/*
+		 * 学习注释：找不到目录项不是错误路径的终点。VFS 需要一个
+		 * negative dentry 表示“不存在”，后续 create 可以复用该 dentry。
+		 */
 		if (IS_ERR(folio)) {
 			err = PTR_ERR(folio);
 			goto out;
@@ -535,6 +548,10 @@ static struct dentry *f2fs_lookup(struct inode *dir, struct dentry *dentry,
 	}
 
 	if (inode->i_nlink == 0) {
+		/*
+		 * 学习注释：目录项指向 nlink 为 0 的 inode 表示磁盘元数据
+		 * 不一致。继续返回该 inode 会让 VFS 看到已经删除的对象。
+		 */
 		f2fs_warn(F2FS_I_SB(inode), "%s: inode (ino=%llx) has zero i_nlink",
 			  __func__, inode->i_ino);
 		err = -EFSCORRUPTED;
@@ -620,6 +637,11 @@ static int f2fs_unlink(struct inode *dir, struct dentry *dentry)
 	f2fs_balance_fs(sbi, true);
 
 	f2fs_lock_op(sbi, &lc);
+	/*
+	 * 学习注释：unlink 先预留 orphan inode 名额，再删除目录项。
+	 * 如果崩溃发生在目录项删除之后、数据清理之前，orphan 记录能让
+	 * 下次挂载继续完成 inode truncate/回收。
+	 */
 	err = f2fs_acquire_orphan_inode(sbi);
 	if (err) {
 		f2fs_unlock_op(sbi, &lc);
@@ -991,6 +1013,11 @@ static int f2fs_rename(struct mnt_idmap *idmap, struct inode *old_dir,
 	 * simply convert first here.
 	 */
 	if (old_dir == new_dir && !new_inode) {
+		/*
+		 * 学习注释：同目录 rename 到一个新名字时，后续可能要新增
+		 * dir_entry。先把 inline dir 转成普通目录，可以避免更新到一半
+		 * 因转换失败而留下难处理的半成品。
+		 */
 		err = f2fs_try_convert_inline_dir(old_dir, new_dentry);
 		if (err)
 			return err;
@@ -1033,6 +1060,10 @@ static int f2fs_rename(struct mnt_idmap *idmap, struct inode *old_dir,
 	}
 
 	if (old_is_dir && old_dir != new_dir) {
+		/*
+		 * 学习注释：目录跨父目录 rename 时，除了移动 old_entry，
+		 * 还要更新被移动目录内部的 ".." 项，让它指向 new_dir。
+		 */
 		old_dir_entry = f2fs_parent_dir(old_inode, &old_dir_folio);
 		if (!old_dir_entry) {
 			if (IS_ERR(old_dir_folio))

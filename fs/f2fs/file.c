@@ -307,6 +307,11 @@ static int f2fs_do_sync_file(struct file *file, loff_t start, loff_t end,
 	/* if fdatasync is triggered, let's do in-place-update */
 	if (datasync || get_dirty_pages(inode) <= SM_I(sbi)->min_fsync_blocks)
 		set_inode_flag(inode, FI_NEED_IPU);
+	/*
+	 * 学习注释：fsync/fdatasync 首先把目标范围的数据页写下去。
+	 * 数据页完成后，下面才判断是否需要完整 checkpoint，还是只写
+	 * fsync node 链供 roll-forward recovery 使用。
+	 */
 	ret = file_write_and_wait_range(file, start, end);
 	clear_inode_flag(inode, FI_NEED_IPU);
 
@@ -317,6 +322,10 @@ static int f2fs_do_sync_file(struct file *file, loff_t start, loff_t end,
 
 	/* if the inode is dirty, let's recover all the time */
 	if (!f2fs_skip_inode_update(inode, datasync)) {
+		/*
+		 * 学习注释：如果 inode 元数据本身需要持久化，就先写 inode
+		 * node page，再进入 go_write 统一决定 checkpoint 或 fsync node。
+		 */
 		f2fs_write_inode(inode, NULL);
 		goto go_write;
 	}
@@ -358,6 +367,11 @@ go_write:
 	f2fs_up_read(&F2FS_I(inode)->i_sem);
 
 	if (cp_reason) {
+		/*
+		 * 学习注释：某些场景不能只依赖 roll-forward recovery，例如
+		 * hardlink、压缩文件、pino 异常、空间不足或特殊日志配置。
+		 * 此时直接走 f2fs_sync_fs()，用 checkpoint 建立完整一致性点。
+		 */
 		/* all the dirty node pages should be flushed for POR */
 		ret = f2fs_sync_fs(inode->i_sb, 1);
 
@@ -371,6 +385,11 @@ go_write:
 		goto out;
 	}
 sync_nodes:
+	/*
+	 * 学习注释：不需要 checkpoint 时，fsync 只刷当前 inode 相关的
+	 * fsync node 链。崩溃后 recovery 会沿这条 node 链补回已 fsync
+	 * 的数据映射，比完整 checkpoint 更轻。
+	 */
 	atomic_inc(&sbi->wb_sync_req[NODE]);
 	ret = f2fs_fsync_node_pages(sbi, inode, &wbc, atomic, &seq_id);
 	atomic_dec(&sbi->wb_sync_req[NODE]);
@@ -5275,6 +5294,11 @@ static ssize_t f2fs_file_write_iter(struct kiocb *iocb, struct iov_iter *from)
 			f2fs_trace_rw_file_path(iocb->ki_filp, iocb->ki_pos,
 						orig_count, WRITE);
 
+		/*
+		 * 学习注释：真正写入在这里分流。DIO 会尽量绕过 page cache，
+		 * buffered write 则进入 write_begin/write_end，把数据先放入
+		 * page cache，后续由 writeback 分配物理块并提交 BIO。
+		 */
 		/* Do the actual write. */
 		ret = dio ?
 			f2fs_dio_write_iter(iocb, from, &may_need_sync) :
@@ -5285,6 +5309,11 @@ static ssize_t f2fs_file_write_iter(struct kiocb *iocb, struct iov_iter *from)
 
 	/* Don't leave any preallocated blocks around past i_size. */
 	if (preallocated && i_size_read(inode) < target_size) {
+		/*
+		 * 学习注释：预分配可能超出最终 i_size，尤其是短写或错误返回。
+		 * 这里在 GC 写锁和 page cache invalidate 锁下截掉多余块，
+		 * 防止后续 fiemap/读取看到不该暴露的预留空间。
+		 */
 		f2fs_down_write(&F2FS_I(inode)->i_gc_rwsem[WRITE]);
 		filemap_invalidate_lock(inode->i_mapping);
 		if (!f2fs_truncate(inode))

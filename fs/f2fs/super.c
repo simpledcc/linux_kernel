@@ -5301,6 +5301,11 @@ try_onemore:
 		 */
 		if (f2fs_hw_is_readonly(sbi)) {
 			if (!is_set_ckpt_flags(sbi, CP_UMOUNT_FLAG)) {
+				/*
+				 * 学习注释：只读设备上不能真正 replay fsync 数据。
+				 * 这里先 check_only 判断是否存在必须恢复的内容；
+				 * 如果存在，就拒绝普通挂载并提示使用 norecovery。
+				 */
 				err = f2fs_recover_fsync_data(sbi, true);
 				if (err > 0) {
 					err = -EROFS;
@@ -5321,6 +5326,10 @@ try_onemore:
 		if (skip_recovery)
 			goto reset_checkpoint;
 
+		/*
+		 * 学习注释：普通可写挂载会真正执行 roll-forward recovery。
+		 * 失败时标记 need_fsck，避免把不完整恢复结果当成干净状态。
+		 */
 		err = f2fs_recover_fsync_data(sbi, false);
 		if (err < 0) {
 			if (err != -ENOMEM)
@@ -5331,6 +5340,11 @@ try_onemore:
 			goto free_meta;
 		}
 	} else {
+		/*
+		 * 学习注释：用户显式禁用 recovery 时仍会 check_only。
+		 * 若发现需要恢复且不是只读挂载，就拒绝继续，防止丢弃已 fsync
+		 * 但未 checkpoint 的修改。
+		 */
 		err = f2fs_recover_fsync_data(sbi, true);
 		if (err > 0) {
 			if (!f2fs_readonly(sb)) {

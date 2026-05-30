@@ -1698,6 +1698,10 @@ static int do_checkpoint(struct f2fs_sb_info *sbi, struct cp_control *cpc)
 	for (i = 0; i < NR_CURSEG_NODE_TYPE; i++) {
 		struct curseg_info *curseg = CURSEG_I(sbi, i + CURSEG_HOT_NODE);
 
+		/*
+		 * 学习注释：checkpoint 必须记录每条 active node log 当前写到
+		 * 哪个 segment/offset。下次挂载才能从同一位置继续追加或恢复。
+		 */
 		ckpt->cur_node_segno[i] = cpu_to_le32(curseg->segno);
 		ckpt->cur_node_blkoff[i] = cpu_to_le16(curseg->next_blkoff);
 		ckpt->alloc_type[i + CURSEG_HOT_NODE] = curseg->alloc_type;
@@ -1705,6 +1709,10 @@ static int do_checkpoint(struct f2fs_sb_info *sbi, struct cp_control *cpc)
 	for (i = 0; i < NR_CURSEG_DATA_TYPE; i++) {
 		struct curseg_info *curseg = CURSEG_I(sbi, i + CURSEG_HOT_DATA);
 
+		/*
+		 * 学习注释：data curseg 的位置也写入 checkpoint。GC、SSR 和
+		 * 后续普通写入都依赖这些 active log 位置不被错误复用。
+		 */
 		ckpt->cur_data_segno[i] = cpu_to_le32(curseg->segno);
 		ckpt->cur_data_blkoff[i] = cpu_to_le16(curseg->next_blkoff);
 		ckpt->alloc_type[i + CURSEG_HOT_DATA] = curseg->alloc_type;
@@ -1768,10 +1776,18 @@ static int do_checkpoint(struct f2fs_sb_info *sbi, struct cp_control *cpc)
 							start_blk++);
 
 	if (orphan_num) {
+		/*
+		 * 学习注释：orphan inode 在 checkpoint 中持久化，解决 unlink
+		 * 后崩溃但 inode 数据尚未完全 truncate 的恢复问题。
+		 */
 		write_orphan_inodes(sbi, start_blk);
 		start_blk += orphan_blocks;
 	}
 
+	/*
+	 * 学习注释：data summary 和 node summary 是下一次挂载/GC/recovery
+	 * 反查 block owner 的基础。它们必须和上面记录的 curseg 状态一致。
+	 */
 	f2fs_write_data_summaries(sbi, start_blk);
 	start_blk += data_sum_blocks;
 
@@ -1885,6 +1901,10 @@ int f2fs_write_checkpoint(struct f2fs_sb_info *sbi, struct cp_control *cpc)
 
 	trace_f2fs_write_checkpoint(sbi->sb, cpc->reason, CP_PHASE_START_BLOCK_OPS);
 
+	/*
+	 * 学习注释：block_operations() 会阻塞关键文件系统修改路径，
+	 * 把 checkpoint 期间需要写入的一致性视图冻结下来。
+	 */
 	err = block_operations(sbi);
 	if (err)
 		goto out;
@@ -1940,6 +1960,11 @@ int f2fs_write_checkpoint(struct f2fs_sb_info *sbi, struct cp_control *cpc)
 	stat_cp_time(cpc, CP_TIME_FLUSH_SIT);
 
 	/* save inmem log status */
+	/*
+	 * 学习注释：in-memory curseg 需要在 checkpoint 前保存，do_checkpoint()
+	 * 期间可能临时推进日志状态；写完后再 restore，避免内存态 active log
+	 * 被 checkpoint 写出过程扰乱。
+	 */
 	f2fs_save_inmem_curseg(sbi);
 
 	err = do_checkpoint(sbi, cpc);
@@ -1948,6 +1973,10 @@ int f2fs_write_checkpoint(struct f2fs_sb_info *sbi, struct cp_control *cpc)
 		f2fs_bug_on(sbi, !f2fs_cp_error(sbi));
 		f2fs_release_discard_addrs(sbi);
 	} else {
+		/*
+		 * 学习注释：只有 checkpoint 成功，prefree segment 才能最终转为
+		 * free 并发出 discard。失败时必须保留这些待释放状态。
+		 */
 		f2fs_clear_prefree_segments(sbi, cpc);
 	}
 

@@ -828,6 +828,11 @@ int f2fs_get_dnode_of_data(struct dnode_of_data *dn, pgoff_t index, int mode)
 	nids[0] = dn->inode->i_ino;
 
 	if (!dn->inode_folio) {
+		/*
+		 * 学习注释：没有传入 inode_folio 时，从 NODE_MAPPING 中读取
+		 * inode node。很多调用者会复用已锁定的 inode_folio，以减少
+		 * 重复读 node page 和锁开销。
+		 */
 		nfolio[0] = f2fs_get_inode_folio(sbi, nids[0]);
 		if (IS_ERR(nfolio[0]))
 			return PTR_ERR(nfolio[0]);
@@ -853,6 +858,11 @@ int f2fs_get_dnode_of_data(struct dnode_of_data *dn, pgoff_t index, int mode)
 		bool done = false;
 
 		if (nids[i] && nids[i] == dn->inode->i_ino) {
+			/*
+			 * 学习注释：中间 node 指回 inode 自己说明 node tree
+			 * 形成异常环路。继续解析会把同一 node 当成不同层级使用，
+			 * 所以立即标记需要 fsck。
+			 */
 			err = -EFSCORRUPTED;
 			f2fs_err_ratelimited(sbi,
 				"inode mapping table is corrupted, run fsck to fix it, "
@@ -887,6 +897,11 @@ int f2fs_get_dnode_of_data(struct dnode_of_data *dn, pgoff_t index, int mode)
 			f2fs_alloc_nid_done(sbi, nids[i]);
 			done = true;
 		} else if (mode == LOOKUP_NODE_RA && i == level && level > 1) {
+			/*
+			 * 学习注释：LOOKUP_NODE_RA 只在最后一级做 readahead。
+			 * 它不改变 node tree，只提前把相邻 node 页放入缓存，
+			 * 用于截断、fiemap、连续映射扫描这类顺序访问。
+			 */
 			nfolio[i] = f2fs_get_node_folio_ra(parent, offset[i - 1]);
 			if (IS_ERR(nfolio[i])) {
 				err = PTR_ERR(nfolio[i]);
@@ -895,6 +910,11 @@ int f2fs_get_dnode_of_data(struct dnode_of_data *dn, pgoff_t index, int mode)
 			done = true;
 		}
 		if (i == 1) {
+			/*
+			 * 学习注释：走过第一层后释放 inode_folio 锁，避免长时间
+			 * 持有 inode node 影响其他元数据更新；后续层级用 parent
+			 * folio 引用继续向下解析。
+			 */
 			dn->inode_folio_locked = false;
 			folio_unlock(parent);
 		} else {

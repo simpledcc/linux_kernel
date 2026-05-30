@@ -907,6 +907,10 @@ int f2fs_recover_fsync_data(struct f2fs_sb_info *sbi, bool check_only)
 		goto skip;
 
 	if (check_only) {
+		/*
+		 * 学习注释：check_only 只告诉挂载流程“确实有 fsync 数据需要
+		 * replay”。只读设备或 norecovery 场景会据此决定拒绝挂载或丢弃。
+		 */
 		ret = 1;
 		goto skip;
 	}
@@ -953,6 +957,10 @@ skip:
 	destroy_fsync_dnodes(&dir_list, err);
 
 	if (need_writecp) {
+		/*
+		 * 学习注释：recovery 改过 node、dentry 或数据映射后，必须马上
+		 * checkpoint。否则下次挂载还会再次扫描同一段 fsync node 链。
+		 */
 		set_sbi_flag(sbi, SBI_IS_RECOVERED);
 
 		if (!err) {

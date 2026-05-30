@@ -364,6 +364,10 @@ struct f2fs_dir_entry *__f2fs_find_entry(struct inode *dir,
 start_find_entry:
 #endif
 	if (f2fs_has_inline_dentry(dir)) {
+		/*
+		 * 学习注释：inline dentry 命中时不访问普通 data block，
+		 * 目录项就在 inode node 内部，适合小目录减少一次数据页读取。
+		 */
 		de = f2fs_find_in_inline_dir(dir, fname, res_folio, use_hash);
 		goto out;
 	}
@@ -380,6 +384,10 @@ start_find_entry:
 	}
 
 	for (level = 0; level < max_depth; level++) {
+		/*
+		 * 学习注释：逐层扫描 hash 目录。越深的 level 覆盖更多 bucket，
+		 * 用空间换查找扩展能力；找到目标或遇到 I/O 错误就停止。
+		 */
 		de = find_in_level(dir, level, fname, res_folio, use_hash);
 		if (de || IS_ERR(*res_folio))
 			break;
@@ -725,6 +733,11 @@ start:
 				(le32_to_cpu(fname->hash) % nbucket));
 
 	for (block = bidx; block <= (bidx + nblock - 1); block++) {
+		/*
+		 * 学习注释：新增目录项可能需要创建新的 dentry data block。
+		 * f2fs_get_new_data_folio() 会保证目标目录页存在，并把后续
+		 * bitmap/filename/dir_entry 修改留给本函数完成。
+		 */
 		dentry_folio = f2fs_get_new_data_folio(dir, NULL, block, true);
 		if (IS_ERR(dentry_folio))
 			return PTR_ERR(dentry_folio);
@@ -762,6 +775,10 @@ add_dentry:
 	f2fs_update_dentry(ino, mode, &d, &fname->disk_name, fname->hash,
 			   bit_pos);
 
+	/*
+	 * 学习注释：目录项写入后只标脏目录页，不在这里同步落盘。
+	 * 是否立即同步由 dirsync/fsync/checkpoint 路径决定。
+	 */
 	folio_mark_dirty(dentry_folio);
 
 	if (inode) {
@@ -930,6 +947,10 @@ void f2fs_delete_entry(struct f2fs_dir_entry *dentry, struct folio *folio,
 
 	if (bit_pos == NR_DENTRY_IN_BLOCK &&
 		!f2fs_truncate_hole(dir, index, index + 1)) {
+		/*
+		 * 学习注释：整个目录项块已经空时，释放这个目录数据块。
+		 * 同时清 page cache dirty/uptodate 状态，避免空页再次被写回。
+		 */
 		f2fs_clear_page_cache_dirty_tag(folio);
 		folio_clear_dirty_for_io(folio);
 		folio_clear_uptodate(folio);

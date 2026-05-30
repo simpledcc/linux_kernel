@@ -113,3 +113,18 @@ Review Agent `019e76f1-95e5-7093-911a-6d5e5a9da0f8`（Darwin）已写入 `report
 - 当前验证边界清楚，没有声称通过未运行的内核编译、KUnit、xfstests、f2fs-tools 或断电恢复测试。
 
 Darwin 提出 1 个非阻塞建议：`reports/deep_data_node_agent_report.md` 中关于中文注释乱码的描述与当前 UTF-8 可读状态不一致。Manager Agent 已将该句改为说明“PowerShell 默认编码下可能显示乱码，UTF-8 显式读取可读”，避免误导。
+
+## 第三轮关键执行路径注释
+
+用户要求继续对 F2FS 中的执行代码逻辑和关键路径添加注释。Manager Agent 本轮只补充源码注释和任务记录，不修改执行逻辑。
+
+本轮重点覆盖：
+
+- `fs/f2fs/file.c`：`f2fs_do_sync_file()` 中 fsync/fdatasync、checkpoint 与 fsync node 链分流；`f2fs_file_write_iter()` 中 DIO/buffered write 分流和预分配清理。
+- `fs/f2fs/data.c`：`f2fs_map_blocks()` 中 extent cache、DIO/预分配、hole、锁和批量预留逻辑；`f2fs_do_write_data_page()` 中 IPU/OPU、truncate 竞争、summary version。
+- `fs/f2fs/node.c`：`f2fs_get_dnode_of_data()` 中 inode folio 读取、node tree 环路检查、LOOKUP_NODE_RA、锁释放顺序。
+- `fs/f2fs/namei.c` 与 `fs/f2fs/dir.c`：create、lookup、unlink、rename、inline/regular dentry、目录页标脏和空目录项块释放。
+- `fs/f2fs/segment.c`：OPU 分配时 summary、SSR、SIT 更新顺序、dirty segment 状态刷新。
+- `fs/f2fs/checkpoint.c`：checkpoint pack 中 active logs、orphan、summary、block_operations、prefree 清理时机。
+- `fs/f2fs/gc.c`：summary folio pin、current section 防护、前台 GC 升级、victim 迁移和锁竞争后 checkpoint。
+- `fs/f2fs/recovery.c` 与 `fs/f2fs/super.c`：roll-forward recovery 的 check_only、replay 后 checkpoint、只读/禁用 recovery 挂载分支。
