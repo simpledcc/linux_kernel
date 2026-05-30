@@ -882,6 +882,12 @@ int f2fs_recover_fsync_data(struct f2fs_sb_info *sbi, bool check_only)
 	bool need_writecp = false;
 	bool new_inode = false;
 
+	/*
+	 * 学习注释：roll-forward recovery 用来恢复上次 checkpoint 之后
+	 * 已 fsync 但尚未 checkpoint 的数据。它先扫描 fsynced dnode，
+	 * 再按 node 链恢复 inode、dentry 和 data block 映射，成功后
+	 * 立即写一次 CP_RECOVERY checkpoint，把恢复结果固化成新基线。
+	 */
 	f2fs_notice(sbi, "f2fs_recover_fsync_data: recovery fsync data, "
 					"check_only: %d", check_only);
 
@@ -891,6 +897,10 @@ int f2fs_recover_fsync_data(struct f2fs_sb_info *sbi, bool check_only)
 	/* prevent checkpoint */
 	f2fs_down_write_trace(&sbi->cp_global_sem, &lc);
 
+	/*
+	 * 学习注释：第一阶段只找“哪些 inode 需要恢复”。check_only 模式
+	 * 用于挂载早期判断是否存在可恢复内容，不真正修改数据结构。
+	 */
 	/* step #1: find fsynced inode numbers */
 	err = find_fsync_dnodes(sbi, &inode_list, check_only, &new_inode);
 	if (err < 0 || (list_empty(&inode_list) && (!check_only || !new_inode)))
@@ -903,6 +913,10 @@ int f2fs_recover_fsync_data(struct f2fs_sb_info *sbi, bool check_only)
 
 	need_writecp = true;
 
+	/*
+	 * 学习注释：第二阶段才真正恢复数据和目录项。恢复期间禁止
+	 * checkpoint，避免还没完成的 roll-forward 状态被写成新的稳定点。
+	 */
 	/* step #2: recover data */
 	err = recover_data(sbi, &inode_list, &tmp_inode_list, &dir_list);
 	if (!err)

@@ -933,6 +933,12 @@ enum {
 	FI_MAX,			/* max flag, never be used */
 };
 
+/*
+ * 学习注释：F2FS 把 VFS inode 内嵌在 f2fs_inode_info 里。
+ * 读代码时可以把它看成“每个文件的运行时控制块”：一部分字段对应
+ * 磁盘 inode 的扩展状态，一部分字段只服务内存态的脏页、extent cache、
+ * atomic write、GC 同步和目录查找加速。
+ */
 struct f2fs_inode_info {
 	struct inode vfs_inode;		/* serve a vfs inode */
 	unsigned long i_flags;		/* keep an inode flags for ioctl */
@@ -1059,6 +1065,11 @@ enum nat_state {
 	MAX_NAT_STATE,
 };
 
+/*
+ * 学习注释：node manager 维护 NAT 和 free nid。F2FS 的数据块地址
+ * 不直接存在 inode 线性数组里，而是通过 inode/direct/indirect node
+ * 形成 node tree；每个 node id 再由 NAT 映射到真实物理块。
+ */
 struct f2fs_nm_info {
 	block_t nat_blkaddr;		/* base disk address of NAT */
 	nid_t max_nid;			/* maximum possible node ids */
@@ -1179,6 +1190,11 @@ struct flush_cmd_control {
 	struct llist_node *dispatch_list;	/* list for command dispatch */
 };
 
+/*
+ * 学习注释：segment manager 维护 SIT/free/dirty/curseg。
+ * out-of-place 写入会持续消耗 curseg，旧块失效后通过 SIT 统计有效块，
+ * checkpoint 再把 prefree segment 推进为真正 free segment。
+ */
 struct f2fs_sm_info {
 	struct sit_info *sit_info;		/* whole segment information */
 	struct free_segmap_info *free_info;	/* free segment information */
@@ -1738,6 +1754,12 @@ struct decompress_io_ctx {
 #define MAX_COMPRESS_LOG_SIZE		8
 #define MAX_COMPRESS_WINDOW_SIZE(log_size)	((PAGE_SIZE) << (log_size))
 
+/*
+ * 学习注释：f2fs_sb_info 是挂载实例的总控对象。VFS super_block
+ * 通过 s_fs_info 指向它；后续几乎所有 F2FS 路径都会从 inode、folio
+ * 或 mapping 反查到 sbi，再访问 node manager、segment manager、
+ * checkpoint、bio 合并队列、GC/CP 线程和统计状态。
+ */
 struct f2fs_sb_info {
 	struct super_block *sb;			/* pointer to VFS super block */
 	struct proc_dir_entry *s_proc;		/* proc entry */
@@ -2174,6 +2196,11 @@ static inline u32 f2fs_chksum(u32 crc, const void *address, unsigned int length)
 	return __f2fs_crc32(crc, address, length);
 }
 
+/*
+ * 学习注释：下面这些 F2FS_I/F2FS_SB/NM_I/SM_I/SIT_I 辅助函数是读
+ * F2FS 代码的“导航入口”。遇到 inode、super_block、folio 或 mapping
+ * 时，先看它们如何转换到 sbi/fi，再顺着 manager 指针理解后续状态访问。
+ */
 static inline struct f2fs_inode_info *F2FS_I(struct inode *inode)
 {
 	return container_of(inode, struct f2fs_inode_info, vfs_inode);

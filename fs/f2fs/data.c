@@ -1634,6 +1634,12 @@ int f2fs_map_blocks(struct inode *inode, struct f2fs_map_blocks *map, int flag)
 	bool is_hole;
 	bool lfs_dio_write;
 
+	/*
+	 * 学习注释：这是“逻辑文件块 -> 物理块”的核心查询/分配入口。
+	 * 只读场景优先命中 extent cache；需要分配时会通过
+	 * f2fs_get_dnode_of_data() 找到 data address slot，再按调用 flag
+	 * 决定是预分配、DIO 分配、fiemap/bmap 查询，还是遇到 hole 直接返回。
+	 */
 	if (!maxblocks)
 		return 0;
 
@@ -1683,6 +1689,11 @@ next_dnode:
 		f2fs_map_lock(sbi, &lc, flag);
 	}
 
+	/*
+	 * 学习注释：dnode_of_data 把 inode node、direct/indirect node、
+	 * slot 偏移和当前 data block 地址封装在一起。后面所有 hole 判断、
+	 * 新块分配、extent cache 更新，都围绕这个 dn 展开。
+	 */
 	/* When reading holes, we need its node page */
 	set_new_dnode(&dn, inode, NULL, NULL, 0);
 	err = f2fs_get_dnode_of_data(&dn, pgofs, mode);
@@ -2956,6 +2967,12 @@ int f2fs_do_write_data_page(struct f2fs_io_info *fio)
 	bool atomic_commit;
 	int err = 0;
 
+	/*
+	 * 学习注释：writeback 走到这里时，folio 已经是脏页，需要选择
+	 * in-place update 还是 out-of-place update。普通 LFS 思路会写到
+	 * 新块并更新 node slot；SSR、热冷数据、atomic write、GC 迁移等
+	 * 条件会影响最终 fio 中的 segment 类型和写入策略。
+	 */
 	/* Use COW inode to make dnode_of_data for atomic write */
 	atomic_commit = f2fs_is_atomic_file(inode) &&
 				folio_test_f2fs_atomic(folio);
@@ -3058,7 +3075,11 @@ got_it:
 	if (fio->compr_blocks && fio->old_blkaddr == COMPRESS_ADDR)
 		f2fs_i_compr_blocks_update(inode, fio->compr_blocks - 1, false);
 
-	/* LFS mode write path */
+	/*
+	 * 学习注释：out-place 写入是 F2FS 的默认主线。它会进入
+	 * segment.c 的 f2fs_allocate_data_block() 分配新块，并把旧块
+	 * 标记为失效；之后 GC 才有机会回收旧 segment。
+	 */
 	f2fs_outplace_write_data(&dn, fio);
 	trace_f2fs_do_write_data_page(folio, OPU);
 	set_inode_flag(inode, FI_APPEND_WRITE);
@@ -3576,6 +3597,11 @@ static int __f2fs_write_data_pages(struct address_space *mapping,
 	int ret;
 	bool locked = false;
 
+	/*
+	 * 学习注释：writepages 是 page cache 批量写回入口。它不直接写某个
+	 * 用户 buffer，而是扫描 mapping 中的 dirty folio，按 checkpoint、
+	 * 后台回写、同步回写和内存压力选择是否跳过、串行化或提交 BIO。
+	 */
 	/* skip writing if there is no dirty page in this inode */
 	if (!get_dirty_pages(inode) && wbc->sync_mode == WB_SYNC_NONE)
 		return 0;
@@ -3884,6 +3910,8 @@ static int f2fs_write_begin(const struct kiocb *iocb,
 	/*
 	 * 学习注释：buffered write 拷贝用户数据前先进入 write_begin。
 	 * 这里负责准备 folio、块映射、inline/压缩/atomic 等特殊状态。
+	 * 如果是覆盖已有块但 folio 不是 uptodate，还要先把旧数据读进来，
+	 * 避免 partial write 覆盖未写入的字节。
 	 */
 	trace_f2fs_write_begin(inode, pos, len);
 
@@ -4018,6 +4046,11 @@ static int f2fs_write_end(const struct kiocb *iocb,
 
 	trace_f2fs_write_end(inode, pos, len, copied);
 
+	/*
+	 * 学习注释：write_end 在用户数据拷贝完成后收尾。它负责把 folio
+	 * 标脏、更新 i_size/mtime、处理压缩覆盖写结果，并把后续真正落盘
+	 * 交给 writepages/writeback 路径。
+	 */
 	/*
 	 * This should be come from len == PAGE_SIZE, and we expect copied
 	 * should be PAGE_SIZE. Otherwise, we treat it with zero copied and
@@ -4430,7 +4463,10 @@ static void f2fs_swap_deactivate(struct file *file)
 
 /*
  * 学习注释：这是用户 inode 数据页 page cache 与 F2FS 的核心接口。
- * filemap/generic writeback 会通过这些回调进入 F2FS 的读写实现。
+ * read_folio/readahead 负责缺页读；write_begin/write_end 负责
+ * buffered write 的页准备和收尾；writepages 把脏页批量送入
+ * f2fs_do_write_data_page()；bmap/swap/direct I/O 相关路径则复用
+ * f2fs_map_blocks() 查询或建立块映射。
  */
 const struct address_space_operations f2fs_dblock_aops = {
 	.read_folio	= f2fs_read_data_folio,

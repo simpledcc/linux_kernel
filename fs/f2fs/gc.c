@@ -1737,6 +1737,11 @@ static int __get_victim(struct f2fs_sb_info *sbi, unsigned int *victim,
 	struct sit_info *sit_i = SIT_I(sbi);
 	int ret;
 
+	/*
+	 * 学习注释：victim 选择依赖 SIT 中的有效块数量、mtime、冷热类型
+	 * 和前后台 GC 策略。这里加 sentry_lock 是为了让选择结果和 segment
+	 * 有效块统计保持一致，避免 GC 迁移时看到过期的 segment 状态。
+	 */
 	down_write(&sit_i->sentry_lock);
 	ret = f2fs_get_victim(sbi, victim, gc_type, NO_CHECK_TYPE,
 			LFS, 0, one_time);
@@ -1759,6 +1764,11 @@ static int do_garbage_collect(struct f2fs_sb_info *sbi,
 	unsigned char data_type = (type == SUM_TYPE_DATA) ? DATA : NODE;
 	int submitted = 0, sum_blk_cnt;
 
+	/*
+	 * 学习注释：GC 真正搬迁块的主体在这里。它先读取 victim segment
+	 * 的 summary block，通过 summary 找到 owner nid/ofs，再验证该块
+	 * 是否仍是当前有效映射；只有仍有效的数据或 node 才会被迁移。
+	 */
 	if (__is_large_section(sbi)) {
 		sec_end_segno = rounddown(end_segno, SEGS_PER_SEC(sbi));
 
@@ -1936,6 +1946,8 @@ int f2fs_gc(struct f2fs_sb_info *sbi, struct f2fs_gc_control *gc_control)
 	 * 学习注释：GC 主流程从这里开始。它会选择 victim segment，
 	 * 通过 SSA/NAT/node page 验证有效块，并把仍然有效的数据或
 	 * node 迁移到新位置；必要时再通过 checkpoint 回收 prefree segment。
+	 * 背景 GC 偏向低干扰，前台 GC 则在空间不足时反复尝试，直到达到
+	 * 需要的 free section 数或遇到不可迁移的 pinned/锁竞争场景。
 	 */
 	trace_f2fs_gc_begin(sbi->sb, gc_type, gc_control->no_bg_gc,
 				gc_control->nr_free_secs,

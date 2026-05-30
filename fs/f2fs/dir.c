@@ -355,6 +355,11 @@ struct f2fs_dir_entry *__f2fs_find_entry(struct inode *dir,
 
 	*res_folio = NULL;
 
+	/*
+	 * 学习注释：F2FS 目录有两种存储形态。小目录可能是 inline dentry，
+	 * 直接放在 inode node 里；普通目录则按 hash level/bucket/block
+	 * 查找目录项块。理解 lookup 性能时要重点看这里的 level 扫描。
+	 */
 #if IS_ENABLED(CONFIG_UNICODE)
 start_find_entry:
 #endif
@@ -698,6 +703,11 @@ int f2fs_add_regular_entry(struct inode *dir, const struct f2fs_filename *fname,
 	}
 
 start:
+	/*
+	 * 学习注释：新增目录项会按 hash 定位 bucket，并在 bucket 覆盖的
+	 * dentry block 中寻找连续空 slot。找不到时提升目录 depth，
+	 * 这也是大目录扩展时 i_current_depth 变化的来源。
+	 */
 	if (time_to_inject(F2FS_I_SB(dir), FAULT_DIR_DEPTH))
 		return -ENOSPC;
 
@@ -735,6 +745,11 @@ add_dentry:
 	f2fs_folio_wait_writeback(dentry_folio, DATA, true, true);
 
 	if (inode) {
+		/*
+		 * 学习注释：create/mkdir/link 等路径传入 inode 时，需要在写
+		 * 目录项前初始化目标 inode 的 node page 元数据。这样目录项
+		 * 和 inode 元数据能在同一个受保护的操作窗口内保持一致。
+		 */
 		f2fs_down_write(&F2FS_I(inode)->i_sem);
 		folio = f2fs_init_inode_metadata(inode, dir, fname, NULL);
 		if (IS_ERR(folio)) {
@@ -894,6 +909,11 @@ void f2fs_delete_entry(struct f2fs_dir_entry *dentry, struct folio *folio,
 	if (f2fs_has_inline_dentry(dir))
 		return f2fs_delete_inline_entry(dentry, folio, dir, inode);
 
+	/*
+	 * 学习注释：删除普通目录项时只清 bitmap 中对应 slot，并把目录项页
+	 * 标脏。如果整个 dentry block 已空，才尝试 truncate 这个目录数据洞。
+	 * 目标 inode 的链接计数下降和 orphan 处理由调用方上下文配合完成。
+	 */
 	folio_lock(folio);
 	f2fs_folio_wait_writeback(folio, DATA, true, true);
 

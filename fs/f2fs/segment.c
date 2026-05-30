@@ -3061,6 +3061,12 @@ static int change_curseg(struct f2fs_sb_info *sbi, int type)
 	struct f2fs_summary_block *sum_node;
 	struct folio *sum_folio;
 
+	/*
+	 * 学习注释：SSR 会复用 dirty segment 中仍有空洞的位置，而不是
+	 * 直接拿全新 segment。切换 curseg 时必须先恢复该 segment 的
+	 * summary block，否则后续 GC 无法从 SSA 反查每个有效块属于哪个
+	 * inode/nid/offset。
+	 */
 	if (curseg->inited)
 		write_sum_page(sbi, curseg->sum_blk, curseg->segno);
 
@@ -3797,6 +3803,8 @@ int f2fs_allocate_data_block(struct f2fs_sb_info *sbi, struct folio *folio,
 	/*
 	 * 学习注释：F2FS out-of-place 写入的核心分配点。这里从当前
 	 * curseg 取新块，写 summary，并同步更新新旧块的 SIT 有效性。
+	 * sum 记录“这个物理块属于哪个 nid/offset”，SIT 记录“这个
+	 * segment 还有多少有效块”，二者共同支撑 GC 的反向定位。
 	 */
 	f2fs_down_read(&SM_I(sbi)->curseg_lock);
 
@@ -3852,6 +3860,11 @@ int f2fs_allocate_data_block(struct f2fs_sb_info *sbi, struct folio *folio,
 	 * new segment.
 	 */
 	if (segment_full) {
+		/*
+		 * 学习注释：当前 active log 写满后，要么分配新 segment，
+		 * 要么在 SSR 模式下切到一个 dirty segment 的可复用空洞。
+		 * 这里是 LFS 顺序写和 SSR 空间回收策略的分叉点。
+		 */
 		if (type == CURSEG_COLD_DATA_PINNED &&
 		    !((curseg->segno + 1) % sbi->segs_per_sec)) {
 			write_sum_page(sbi, curseg->sum_blk, curseg->segno);

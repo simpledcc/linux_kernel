@@ -619,8 +619,10 @@ make_now:
 	} else if (S_ISREG(inode->i_mode)) {
 		/*
 		 * 学习注释：普通文件 inode 在这里装配 VFS 操作表。
-		 * file_operations 处理 open/read/write/fsync，a_ops 负责
-		 * page cache 的 read_folio/write_begin/write_end/writepages。
+		 * i_op 处理 setattr/getattr/fiemap 等 inode 级操作；
+		 * i_fop 处理 open/read/write/fsync/ioctl/mmap；
+		 * a_ops 则把 page cache 的 read_folio、write_begin、
+		 * write_end、writepages 接到 F2FS 数据块映射和写回逻辑。
 		 */
 		inode->i_op = &f2fs_file_inode_operations;
 		inode->i_fop = &f2fs_file_operations;
@@ -629,11 +631,22 @@ make_now:
 		    !f2fs_quota_file(sbi, inode->i_ino))
 			mapping_set_folio_min_order(inode->i_mapping, 0);
 	} else if (S_ISDIR(inode->i_mode)) {
+		/*
+		 * 学习注释：目录 inode 使用目录专属的 inode/file ops。
+		 * lookup/create/unlink/rename 等名字空间操作在 namei.c，
+		 * readdir 和目录项块扫描在 dir.c；数据页仍通过 f2fs_dblock_aops
+		 * 管理，因为目录项最终也保存在 F2FS data block 中。
+		 */
 		inode->i_op = &f2fs_dir_inode_operations;
 		inode->i_fop = &f2fs_dir_operations;
 		inode->i_mapping->a_ops = &f2fs_dblock_aops;
 		mapping_set_gfp_mask(inode->i_mapping, GFP_NOFS);
 	} else if (S_ISLNK(inode->i_mode)) {
+		/*
+		 * 学习注释：符号链接只需要 inode ops，没有普通文件的 f_op。
+		 * 加密 symlink 的目标名解析交给 fscrypt 相关回调；其块映射
+		 * 仍沿用 f2fs_dblock_aops。
+		 */
 		if (file_is_encrypt(inode))
 			inode->i_op = &f2fs_encrypted_symlink_inode_operations;
 		else

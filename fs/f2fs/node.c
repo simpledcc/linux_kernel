@@ -819,6 +819,12 @@ int f2fs_get_dnode_of_data(struct dnode_of_data *dn, pgoff_t index, int mode)
 	if (level < 0)
 		return level;
 
+	/*
+	 * 学习注释：get_node_path() 把文件逻辑块号拆成 node tree 路径。
+	 * level=0 表示地址直接在 inode node 中；level>0 则需要经过 direct、
+	 * indirect 或 double-indirect node。offset[] 是每级 node 内的槽位，
+	 * noffset[] 是新建 node 时写入 footer 的逻辑 node 偏移。
+	 */
 	nids[0] = dn->inode->i_ino;
 
 	if (!dn->inode_folio) {
@@ -857,6 +863,12 @@ int f2fs_get_dnode_of_data(struct dnode_of_data *dn, pgoff_t index, int mode)
 		}
 
 		if (!nids[i] && mode == ALLOC_NODE) {
+			/*
+			 * 学习注释：写路径遇到缺失的中间 node 时会分配新的 nid，
+			 * 新 node page 写入后，再把父 node 对应槽位指向这个 nid。
+			 * 这一步只建立 node tree，真正的数据块分配在 data/segment
+			 * 写入路径中完成。
+			 */
 			/* alloc new node */
 			if (!f2fs_alloc_nid(sbi, &(nids[i]))) {
 				err = -ENOSPC;
@@ -908,6 +920,11 @@ int f2fs_get_dnode_of_data(struct dnode_of_data *dn, pgoff_t index, int mode)
 	dn->node_folio = nfolio[level];
 	dn->data_blkaddr = f2fs_data_blkaddr(dn);
 
+	/*
+	 * 学习注释：函数返回时，调用方拿到的 dn 同时包含 node folio、
+	 * node id、data slot 偏移和当前块地址。f2fs_map_blocks()、
+	 * writeback、truncate、GC 迁移都会复用这套定位结果。
+	 */
 	if (is_inode_flag_set(dn->inode, FI_COMPRESSED_FILE) &&
 					f2fs_sb_has_readonly(sbi)) {
 		unsigned int cluster_size = F2FS_I(dn->inode)->i_cluster_size;

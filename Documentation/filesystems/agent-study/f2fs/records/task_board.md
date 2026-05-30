@@ -18,6 +18,13 @@
 | F2FS-T006 | 添加少量中文学习注释 | Manager Agent | done | `fs/f2fs/*.c` |
 | F2FS-T007 | 审查 f2fs 文档和注释 patch | Review Agent | done | `reports/f2fs_review_agent_report.md` |
 | F2FS-T008 | 创建并推送 Git 提交 | Manager Agent | done | Git commit |
+| F2FS-T009 | 深入研究挂载、inode、目录和 namei | Deep Mount/Inode/Dir Agent | done | `reports/deep_mount_inode_dir_agent_report.md` |
+| F2FS-T010 | 深入研究数据 I/O、node/NAT、extent cache 和压缩 | Deep Data/Node Agent | done | `reports/deep_data_node_agent_report.md` |
+| F2FS-T011 | 深入研究 segment、checkpoint、GC 和 recovery | Deep Segment/CP/Recovery Agent | done | `reports/deep_segment_checkpoint_recovery_agent_report.md` |
+| F2FS-T012 | 深入研究测试、观测和特性边界 | Deep Testing/Features Agent | done | `reports/deep_testing_features_agent_report.md` |
+| F2FS-T013 | 增加更详细源码学习注释 | Manager Agent | done | `fs/f2fs/*.c` |
+| F2FS-T014 | 新增深度源码学习与观测测试文档 | Manager Agent | done | `knowledge/f2fs_deep_code_study.md`、`knowledge/f2fs_observability_and_tests.md` |
+| F2FS-T015 | 第二轮审查和提交推送 | Review Agent / Manager Agent | done | `reports/deep_review_agent_report.md` 与 Git commit |
 
 ## 写入约束
 

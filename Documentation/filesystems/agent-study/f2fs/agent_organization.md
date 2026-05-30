@@ -23,6 +23,15 @@
 | F2FS Testing Agent | 研究 f2fs 测试、验证和后续开发检查路线 | `Kconfig`、`Makefile`、`Documentation/filesystems/f2fs.rst`、selftests | `reports/f2fs_testing_agent_report.md` |
 | Review Agent | 交叉审查文档、注释和未验证项 | f2fs 文档和 patch | `reports/f2fs_review_agent_report.md` |
 
+## 第二轮深度学习 Agent
+
+| Agent | 子 agent 昵称 | 职责 | 输出 |
+|---|---|---|---|
+| Deep Mount/Inode/Dir Agent | Rawls | 深挖挂载、`f2fs_iget()`、目录项、`lookup/create/unlink/rename` | `reports/deep_mount_inode_dir_agent_report.md` |
+| Deep Data/Node Agent | Harvey | 深挖 buffered I/O、writeback、`f2fs_map_blocks()`、node tree、NAT、压缩 | `reports/deep_data_node_agent_report.md` |
+| Deep Segment/CP/Recovery Agent | Franklin | 深挖 active logs、SIT、dirty/prefree/free、checkpoint、GC、recovery | `reports/deep_segment_checkpoint_recovery_agent_report.md` |
+| Deep Testing/Features Agent | Avicenna | 深挖 sysfs/procfs/debugfs/tracepoints、xattr、ACL、verity、fscrypt、测试矩阵 | `reports/deep_testing_features_agent_report.md` |
+
 ## 协作方式
 
 ```text
@@ -33,6 +42,17 @@ Manager Agent 建立任务板
   -> Manager 添加少量中文学习注释
   -> Review Agent 审查报告和注释 patch
   -> Manager 修正问题、提交并推送
+```
+
+第二轮在同一模式上继续细化：
+
+```text
+Manager Agent 拆出更细子系统
+  -> 4 个深度学习 agent 并行读不同源码切片
+  -> 各 agent 只写自己的 deep report
+  -> Manager 把结论落到更详细源码学习注释
+  -> Manager 新增深度学习主文档和观测测试文档
+  -> Review Agent 对文档、注释和验证边界做二次审查
 ```
 
 ## 质量要求

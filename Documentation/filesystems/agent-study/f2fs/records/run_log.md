@@ -70,3 +70,46 @@ git diff --check -- Documentation/filesystems/agent-study/f2fs fs/f2fs
 ```
 
 结果：通过，无输出。
+
+## 第二轮深度学习
+
+用户要求对 F2FS 代码继续做更详细学习，添加更细源码注释和学习文档。Manager Agent 继续采用多 agent 协作模式，将任务拆成四个并行方向：
+
+| Agent | 子 agent id | 昵称 | 输出 | 结果 |
+|---|---|---|---|---|
+| Deep Mount/Inode/Dir Agent | `019e76e8-8f96-7613-893f-1f6afe444bd5` | Rawls | `reports/deep_mount_inode_dir_agent_report.md` | 完成 |
+| Deep Data/Node Agent | `019e76e8-8ffd-7261-a068-6ebe396e3c85` | Harvey | `reports/deep_data_node_agent_report.md` | 完成 |
+| Deep Segment/CP/Recovery Agent | `019e76e8-902b-7721-ad44-cbb655dafdaa` | Franklin | `reports/deep_segment_checkpoint_recovery_agent_report.md` | 完成 |
+| Deep Testing/Features Agent | `019e76e8-905b-7292-86a5-df17a17b7c09` | Avicenna | `reports/deep_testing_features_agent_report.md` | 完成 |
+
+Manager Agent 根据第二轮报告新增：
+
+- `knowledge/f2fs_deep_code_study.md`
+- `knowledge/f2fs_observability_and_tests.md`
+
+Manager Agent 在以下文件补充更详细的中文学习注释：
+
+- `fs/f2fs/f2fs.h`
+- `fs/f2fs/super.c`
+- `fs/f2fs/inode.c`
+- `fs/f2fs/namei.c`
+- `fs/f2fs/dir.c`
+- `fs/f2fs/data.c`
+- `fs/f2fs/node.c`
+- `fs/f2fs/segment.c`
+- `fs/f2fs/checkpoint.c`
+- `fs/f2fs/gc.c`
+- `fs/f2fs/recovery.c`
+
+本轮源码注释仍只解释结构、调用链和一致性语义，不改变任何执行逻辑。
+
+## 第二轮 Review Agent 审查结果
+
+Review Agent `019e76f1-95e5-7093-911a-6d5e5a9da0f8`（Darwin）已写入 `reports/deep_review_agent_report.md`，结论为 `PASS`。审查确认：
+
+- `fs/f2fs` diff 只新增或替换注释文本，没有修改函数签名、变量声明、控制流、锁操作、错误处理、返回值或函数调用。
+- 第二轮组织文档、任务板、运行日志和新增知识文档与四份 deep report 主线一致。
+- 源码注释放置位置与语义合理。
+- 当前验证边界清楚，没有声称通过未运行的内核编译、KUnit、xfstests、f2fs-tools 或断电恢复测试。
+
+Darwin 提出 1 个非阻塞建议：`reports/deep_data_node_agent_report.md` 中关于中文注释乱码的描述与当前 UTF-8 可读状态不一致。Manager Agent 已将该句改为说明“PowerShell 默认编码下可能显示乱码，UTF-8 显式读取可读”，避免误导。

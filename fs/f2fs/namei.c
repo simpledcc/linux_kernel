@@ -374,6 +374,12 @@ static int f2fs_create(struct mnt_idmap *idmap, struct inode *dir,
 	nid_t ino = 0;
 	int err;
 
+	/*
+	 * 学习注释：create 路径的核心顺序是“分配 inode/nid -> 建目录项
+	 * -> 确认 nid 分配 -> 实例化 dentry”。f2fs_lock_op() 保护目录项、
+	 * node 和 checkpoint 相关状态，失败时 f2fs_handle_failed_inode()
+	 * 会回收未完成的新 inode。
+	 */
 	if (unlikely(f2fs_cp_error(sbi)))
 		return -EIO;
 	if (!f2fs_is_checkpoint_ready(sbi))
@@ -488,6 +494,11 @@ static struct dentry *f2fs_lookup(struct inode *dir, struct dentry *dentry,
 
 	trace_f2fs_lookup_start(dir, dentry, flags);
 
+	/*
+	 * 学习注释：lookup 先把 VFS qstr 转成 F2FS 可比较的 filename。
+	 * 这里会处理加密文件名、casefold/hash，再由 __f2fs_find_entry()
+	 * 到 inline dentry 或哈希分层目录块中查找 dir_entry。
+	 */
 	if (dentry->d_name.len > F2FS_NAME_LEN) {
 		err = -ENAMETOOLONG;
 		goto out;
@@ -513,6 +524,10 @@ static struct dentry *f2fs_lookup(struct inode *dir, struct dentry *dentry,
 	ino = le32_to_cpu(de->ino);
 	f2fs_folio_put(folio, false);
 
+	/*
+	 * 学习注释：目录项只保存目标 ino，真正的 inode 装配仍回到
+	 * f2fs_iget()。因此 lookup 是 namei/dir.c 与 inode.c 的连接点。
+	 */
 	inode = f2fs_iget(dir->i_sb, ino);
 	if (IS_ERR(inode)) {
 		err = PTR_ERR(inode);
@@ -568,6 +583,11 @@ static int f2fs_unlink(struct inode *dir, struct dentry *dentry)
 
 	trace_f2fs_unlink_enter(dir, dentry);
 
+	/*
+	 * 学习注释：unlink 并不立刻释放所有数据块。它先删除父目录中的
+	 * dir_entry，并在需要时登记 orphan inode；真正的数据和 node 回收
+	 * 会在后续 truncate、evict 或 checkpoint/recovery 相关流程中完成。
+	 */
 	if (unlikely(f2fs_cp_error(sbi))) {
 		err = -EIO;
 		goto out;
@@ -946,6 +966,12 @@ static int f2fs_rename(struct mnt_idmap *idmap, struct inode *old_dir,
 	bool old_is_dir = S_ISDIR(old_inode->i_mode);
 	int err;
 
+	/*
+	 * 学习注释：rename 是目录一致性最复杂的路径之一。它可能同时修改
+	 * old_dir、new_dir、old_inode、新旧目录项、whiteout 和 orphan 状态。
+	 * 因此代码先找齐 old/new entry，再在 f2fs_lock_op() 内完成关键更新，
+	 * 以便 checkpoint 或崩溃恢复能看到可解释的中间状态。
+	 */
 	if (unlikely(f2fs_cp_error(sbi)))
 		return -EIO;
 	if (!f2fs_is_checkpoint_ready(sbi))

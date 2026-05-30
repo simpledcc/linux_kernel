@@ -20,10 +20,13 @@
    读 `f2fs_file_read_iter()`、`f2fs_file_write_iter()`、`f2fs_sync_file()`、`f2fs_dblock_aops`。
 
 6. `fs/f2fs/node.c` 与 `fs/f2fs/segment.c`
-   读 NAT、node page、SIT、curseg、segment allocation。
+   读 `get_node_path()`、`f2fs_get_dnode_of_data()`、NAT、node page、SIT、curseg、segment allocation。
 
 7. `fs/f2fs/checkpoint.c` 与 `fs/f2fs/gc.c`
    读 checkpoint pack、prefree/free、victim 选择和 valid block 迁移。
+
+8. `fs/f2fs/recovery.c`、`fs/f2fs/sysfs.c`、`fs/f2fs/debug.c`
+   读 roll-forward recovery、状态观测、tracepoints、sysfs/procfs/debugfs 输出和测试入口。
 
 ## 建议问题清单
 
@@ -63,3 +66,9 @@
 - `knowledge/f2fs_architecture.md`
 - `knowledge/f2fs_code_flow.md`
 - `knowledge/f2fs_agent_workflow.md`
+- `knowledge/f2fs_deep_code_study.md`
+- `knowledge/f2fs_observability_and_tests.md`
+- `reports/deep_mount_inode_dir_agent_report.md`
+- `reports/deep_data_node_agent_report.md`
+- `reports/deep_segment_checkpoint_recovery_agent_report.md`
+- `reports/deep_testing_features_agent_report.md`

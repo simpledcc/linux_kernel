@@ -1681,6 +1681,12 @@ static int do_checkpoint(struct f2fs_sb_info *sbi, struct cp_control *cpc)
 	u64 kbytes_written;
 	int err;
 
+	/*
+	 * 学习注释：do_checkpoint() 负责把“下一次挂载必须知道的状态”
+	 * 写成 checkpoint pack：当前 active logs、orphan inode、NAT/SIT
+	 * bitmap、data/node summaries、统计和校验值。它不只是落一个超级块，
+	 * 而是把 F2FS 的多张元数据表推进到同一个一致版本。
+	 */
 	/* Flush all the NAT/SIT pages */
 	f2fs_sync_meta_pages(sbi, LONG_MAX, FS_CP_META_IO);
 
@@ -1850,6 +1856,8 @@ int f2fs_write_checkpoint(struct f2fs_sb_info *sbi, struct cp_control *cpc)
 	/*
 	 * 学习注释：checkpoint 是 F2FS 的一致性切点。成功写出后，
 	 * NAT/SIT/summary/current segment 等状态可以作为下次挂载恢复的基线。
+	 * 这个函数外层负责冻结关键文件系统操作、刷新脏数据和 NAT/SIT，
+	 * 内层 do_checkpoint() 再组装并提交 checkpoint pack。
 	 */
 	stat_cp_time(cpc, CP_TIME_START);
 
@@ -1913,6 +1921,11 @@ int f2fs_write_checkpoint(struct f2fs_sb_info *sbi, struct cp_control *cpc)
 	ckpt_ver = cur_cp_version(ckpt);
 	ckpt->checkpoint_ver = cpu_to_le64(++ckpt_ver);
 
+	/*
+	 * 学习注释：先把内存中的 dirty NAT/SIT 刷回各自元数据区域，再写
+	 * checkpoint pack。这样 checkpoint 里的 bitmap/版本号才能指向
+	 * 与本次一致性切点匹配的 NAT/SIT 副本。
+	 */
 	/* write cached NAT/SIT entries to NAT/SIT area */
 	err = f2fs_flush_nat_entries(sbi, cpc);
 	if (err) {

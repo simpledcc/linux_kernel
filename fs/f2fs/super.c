@@ -4958,6 +4958,13 @@ static int f2fs_fill_super(struct super_block *sb, struct fs_context *fc)
 	bool quota_enabled = false;
 #endif
 
+	/*
+	 * 学习注释：f2fs_fill_super() 是挂载主线的汇合点。
+	 * 它先构造内存态 sbi，再读取 raw super/checkpoint，随后初始化
+	 * meta/node/segment/GC/checkpoint 等子系统，最后拿到 root inode
+	 * 并交给 VFS。读挂载流程时可以按这个函数的 goto 清理路径反向理解
+	 * 各子系统之间的依赖顺序。
+	 */
 try_onemore:
 	err = -EINVAL;
 	raw_super = NULL;
@@ -5052,8 +5059,9 @@ try_onemore:
 
 	/*
 	 * 学习注释：这里把 VFS super_block 绑定到 F2FS 的超级块操作表。
-	 * 之后 write_inode、sync_fs、evict_inode、statfs 等超级块级回调
-	 * 都会从 f2fs_sops 分派到 F2FS 实现。
+	 * 之后 write_inode、sync_fs、evict_inode、statfs、remount_fs 等
+	 * 超级块级回调都会从 f2fs_sops 分派到 F2FS 实现；加密、verity、
+	 * xattr、NFS export 也在这一段挂到 VFS 通用抽象上。
 	 */
 	sb->s_op = &f2fs_sops;
 #ifdef CONFIG_FS_ENCRYPTION
@@ -5104,7 +5112,11 @@ try_onemore:
 	if (err)
 		goto free_percpu;
 
-	/* get an inode for meta space */
+	/*
+	 * 学习注释：meta inode 用 page cache 缓存 NAT/SIT/SSA/checkpoint
+	 * 等元数据块。它不是普通用户文件，但复用 address_space/page cache
+	 * 机制，让元数据读写可以走统一 folio 与 writeback 路径。
+	 */
 	sbi->meta_inode = f2fs_iget(sb, F2FS_META_INO(sbi));
 	if (IS_ERR(sbi->meta_inode)) {
 		f2fs_err(sbi, "Failed to read F2FS meta data inode");
@@ -5112,6 +5124,11 @@ try_onemore:
 		goto free_page_array_cache;
 	}
 
+	/*
+	 * 学习注释：checkpoint 是挂载恢复的基线。这里会在两个 checkpoint
+	 * pack 中选择版本和校验都有效的一份，并据此恢复 NAT/SIT bitmap、
+	 * current segment 和全局计数。
+	 */
 	err = f2fs_get_valid_checkpoint(sbi);
 	if (err) {
 		f2fs_err(sbi, "Failed to get valid F2FS checkpoint");
@@ -5173,7 +5190,11 @@ try_onemore:
 		}
 	}
 
-	/* setup f2fs internal modules */
+	/*
+	 * 学习注释：segment manager 必须早于 node manager 建好。
+	 * node manager 初始化 NAT/free nid 时需要知道主区布局和元数据地址，
+	 * 而 segment manager 负责 SIT、free/dirty segmap 与 active logs。
+	 */
 	err = f2fs_build_segment_manager(sbi);
 	if (err) {
 		f2fs_err(sbi, "Failed to initialize F2FS segment manager (%d)",
@@ -5217,7 +5238,11 @@ try_onemore:
 		goto free_stats;
 	}
 
-	/* read root inode and dentry */
+	/*
+	 * 学习注释：root inode 是挂载成功前最后一个关键对象。f2fs_iget()
+	 * 会把磁盘 inode 转成 VFS inode，并按目录类型装配 i_op/i_fop/a_ops；
+	 * 之后 d_make_root(root) 才能把 F2FS 的根目录交给 VFS 路径遍历。
+	 */
 	root = f2fs_iget(sb, F2FS_ROOT_INO(sbi));
 	if (IS_ERR(root)) {
 		f2fs_err(sbi, "Failed to read root inode");
