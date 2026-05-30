@@ -58,6 +58,7 @@
 
 ## 本轮学习产物
 
+- `knowledge/f2fs_principles_and_mechanisms.md`
 - `reports/f2fs_architecture_agent_report.md`
 - `reports/f2fs_io_path_agent_report.md`
 - `reports/f2fs_segment_gc_agent_report.md`

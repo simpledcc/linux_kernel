@@ -26,6 +26,7 @@
 | F2FS-T014 | 新增深度源码学习与观测测试文档 | Manager Agent | done | `knowledge/f2fs_deep_code_study.md`、`knowledge/f2fs_observability_and_tests.md` |
 | F2FS-T015 | 第二轮审查和提交推送 | Review Agent / Manager Agent | done | `reports/deep_review_agent_report.md` 与 Git commit |
 | F2FS-T016 | 在关键执行路径内部补充代码逻辑注释 | Manager Agent | done | `fs/f2fs/{file,data,node,namei,dir,segment,checkpoint,gc,recovery,super}.c` |
+| F2FS-T017 | 输出 F2FS 底层原理和机制完整文档 | Manager Agent | done | `knowledge/f2fs_principles_and_mechanisms.md` |
 
 ## 写入约束
 

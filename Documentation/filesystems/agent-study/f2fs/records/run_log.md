@@ -128,3 +128,11 @@ Darwin 提出 1 个非阻塞建议：`reports/deep_data_node_agent_report.md` �
 - `fs/f2fs/checkpoint.c`：checkpoint pack 中 active logs、orphan、summary、block_operations、prefree 清理时机。
 - `fs/f2fs/gc.c`：summary folio pin、current section 防护、前台 GC 升级、victim 迁移和锁竞争后 checkpoint。
 - `fs/f2fs/recovery.c` 与 `fs/f2fs/super.c`：roll-forward recovery 的 check_only、replay 后 checkpoint、只读/禁用 recovery 挂载分支。
+
+## F2FS 底层原理和机制完整文档
+
+用户要求将完整文档推到代码仓库。Manager Agent 新增：
+
+- `knowledge/f2fs_principles_and_mechanisms.md`
+
+该文档从整个文件系统视角串联 F2FS 的设计动机、磁盘区域、核心内存对象、挂载、node/NAT 映射、page cache 写入、OPU/IPU、segment/active logs、SIT、SSA、checkpoint、GC、roll-forward recovery 和整体工作闭环。它作为 `f2fs_deep_code_study.md` 之外的机制总览文档，适合作为学习入口。
