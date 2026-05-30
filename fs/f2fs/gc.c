@@ -1932,6 +1932,11 @@ int f2fs_gc(struct f2fs_sb_info *sbi, struct f2fs_gc_control *gc_control)
 	unsigned int skipped_round = 0, round = 0;
 	unsigned int upper_secs;
 
+	/*
+	 * 学习注释：GC 主流程从这里开始。它会选择 victim segment，
+	 * 通过 SSA/NAT/node page 验证有效块，并把仍然有效的数据或
+	 * node 迁移到新位置；必要时再通过 checkpoint 回收 prefree segment。
+	 */
 	trace_f2fs_gc_begin(sbi->sb, gc_type, gc_control->no_bg_gc,
 				gc_control->nr_free_secs,
 				get_pages(sbi, F2FS_DIRTY_NODES),

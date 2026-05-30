@@ -5222,6 +5222,11 @@ static ssize_t f2fs_file_write_iter(struct kiocb *iocb, struct iov_iter *from)
 	const ssize_t count = iov_iter_count(from);
 	ssize_t ret;
 
+	/*
+	 * 学习注释：F2FS 普通文件写入口会先做 checkpoint/error、
+	 * 压缩后端、NOWAIT 和 inode 锁等检查，随后再决定 Direct I/O
+	 * 还是 buffered write。
+	 */
 	if (unlikely(f2fs_cp_error(F2FS_I_SB(inode)))) {
 		ret = -EIO;
 		goto out;
@@ -5468,6 +5473,10 @@ long f2fs_compat_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 }
 #endif
 
+/*
+ * 学习注释：VFS 通过 struct file 的 f_op 进入这里；read_iter、
+ * write_iter、fsync 再分别进入 F2FS 的读、写和持久化路径。
+ */
 const struct file_operations f2fs_file_operations = {
 	.llseek		= f2fs_llseek,
 	.read_iter	= f2fs_file_read_iter,

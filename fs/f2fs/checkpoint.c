@@ -1847,6 +1847,10 @@ int f2fs_write_checkpoint(struct f2fs_sb_info *sbi, struct cp_control *cpc)
 	unsigned long long ckpt_ver;
 	int err = 0;
 
+	/*
+	 * 学习注释：checkpoint 是 F2FS 的一致性切点。成功写出后，
+	 * NAT/SIT/summary/current segment 等状态可以作为下次挂载恢复的基线。
+	 */
 	stat_cp_time(cpc, CP_TIME_START);
 
 	if (f2fs_readonly(sbi->sb) || f2fs_hw_is_readonly(sbi))

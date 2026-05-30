@@ -2769,6 +2769,10 @@ static int f2fs_read_data_folio(struct file *file, struct folio *folio)
 	struct fsverity_info *vi = NULL;
 	int ret;
 
+	/*
+	 * 学习注释：buffered read 缺页时会从 page cache 回调到这里。
+	 * F2FS 先处理压缩、inline data、verity 等分支，再提交实际读 I/O。
+	 */
 	trace_f2fs_readpage(folio, DATA);
 
 	if (!f2fs_is_compress_backend_ready(inode)) {
@@ -3877,6 +3881,10 @@ static int f2fs_write_begin(const struct kiocb *iocb,
 	block_t blkaddr = NULL_ADDR;
 	int err = 0;
 
+	/*
+	 * 学习注释：buffered write 拷贝用户数据前先进入 write_begin。
+	 * 这里负责准备 folio、块映射、inline/压缩/atomic 等特殊状态。
+	 */
 	trace_f2fs_write_begin(inode, pos, len);
 
 	if (!f2fs_is_checkpoint_ready(sbi)) {
@@ -4420,6 +4428,10 @@ static void f2fs_swap_deactivate(struct file *file)
 }
 #endif
 
+/*
+ * 学习注释：这是用户 inode 数据页 page cache 与 F2FS 的核心接口。
+ * filemap/generic writeback 会通过这些回调进入 F2FS 的读写实现。
+ */
 const struct address_space_operations f2fs_dblock_aops = {
 	.read_folio	= f2fs_read_data_folio,
 	.readahead	= f2fs_readahead,

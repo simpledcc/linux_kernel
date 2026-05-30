@@ -3794,6 +3794,10 @@ int f2fs_allocate_data_block(struct f2fs_sb_info *sbi, struct folio *folio,
 	bool segment_full = false;
 	int ret = 0;
 
+	/*
+	 * 学习注释：F2FS out-of-place 写入的核心分配点。这里从当前
+	 * curseg 取新块，写 summary，并同步更新新旧块的 SIT 有效性。
+	 */
 	f2fs_down_read(&SM_I(sbi)->curseg_lock);
 
 	mutex_lock(&curseg->curseg_mutex);

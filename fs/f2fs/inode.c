@@ -617,6 +617,11 @@ make_now:
 		mapping_set_gfp_mask(inode->i_mapping,
 			GFP_NOFS | __GFP_HIGHMEM | __GFP_MOVABLE);
 	} else if (S_ISREG(inode->i_mode)) {
+		/*
+		 * 学习注释：普通文件 inode 在这里装配 VFS 操作表。
+		 * file_operations 处理 open/read/write/fsync，a_ops 负责
+		 * page cache 的 read_folio/write_begin/write_end/writepages。
+		 */
 		inode->i_op = &f2fs_file_inode_operations;
 		inode->i_fop = &f2fs_file_operations;
 		inode->i_mapping->a_ops = &f2fs_dblock_aops;

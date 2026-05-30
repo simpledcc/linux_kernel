@@ -5050,6 +5050,11 @@ try_onemore:
 	}
 #endif
 
+	/*
+	 * 学习注释：这里把 VFS super_block 绑定到 F2FS 的超级块操作表。
+	 * 之后 write_inode、sync_fs、evict_inode、statfs 等超级块级回调
+	 * 都会从 f2fs_sops 分派到 F2FS 实现。
+	 */
 	sb->s_op = &f2fs_sops;
 #ifdef CONFIG_FS_ENCRYPTION
 	sb->s_cop = &f2fs_cryptops;
@@ -5640,6 +5645,11 @@ static int __init init_f2fs_fs(void)
 	err = f2fs_init_xattr_cache();
 	if (err)
 		goto free_casefold_cache;
+	/*
+	 * 学习注释：模块初始化的最后一步是向 VFS 注册 f2fs_fs_type。
+	 * 后续 mount -t f2fs 会通过 fs_context 进入 f2fs_get_tree()
+	 * 和 f2fs_fill_super()。
+	 */
 	err = register_filesystem(&f2fs_fs_type);
 	if (err)
 		goto free_xattr_cache;
